@@ -1,0 +1,393 @@
+﻿:root {
+    font-family: "Segoe UI", Arial, sans-serif;
+    color: #18243a;
+    background: #f4f7fb;
+    font-synthesis: none;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+}
+
+button, select {
+    font: inherit;
+}
+
+.dashboard {
+    display: flex;
+    min-height: 100vh;
+}
+
+.sidebar {
+    width: 246px;
+    flex-shrink: 0;
+    background: #14233c;
+    color: #e9f0fa;
+    padding: 28px 16px;
+    display: flex;
+    flex-direction: column;
+}
+
+.brand {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    padding: 0 10px 42px;
+}
+
+.brand-icon {
+    width: 40px;
+    height: 40px;
+    display: grid;
+    place-items: center;
+    background: #3478ed;
+    border-radius: 11px;
+    font-weight: 800;
+    font-size: 22px;
+}
+
+.brand strong,
+.brand span,
+.sidebar-footer span {
+    display: block;
+}
+
+.brand span {
+    color: #9eb0cb;
+    font-size: 12px;
+    margin-top: 3px;
+}
+
+.nav-heading {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #879bb8;
+    padding: 0 14px 15px;
+}
+
+.nav-item {
+    padding: 13px 14px;
+    margin-bottom: 5px;
+    border-radius: 9px;
+    color: #bdcbe0;
+    font-size: 13px;
+}
+
+    .nav-item.active {
+        background: #284366;
+        color: white;
+        font-weight: 600;
+    }
+
+.sidebar-footer {
+    margin-top: auto;
+    padding: 16px 10px 0;
+    border-top: 1px solid #30425b;
+    font-size: 11px;
+    color: #c0cee1;
+}
+
+    .sidebar-footer span {
+        color: #8498b4;
+        margin-top: 6px;
+    }
+
+.main {
+    flex: 1;
+    min-width: 0;
+    padding: 34px;
+    max-width: 1700px;
+}
+
+.topbar,
+.section-title,
+.panel-header,
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 20px;
+}
+
+.topbar {
+    margin-bottom: 35px;
+    flex-wrap: wrap;
+}
+
+.eyebrow {
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    color: #5279ac;
+    font-weight: 800;
+}
+
+h1 {
+    font-size: 29px;
+    margin: 8px 0;
+    letter-spacing: -.7px;
+}
+
+.topbar p,
+.panel-header p {
+    margin: 0;
+    color: #728199;
+    font-size: 13px;
+}
+
+.toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 12px;
+}
+
+    .toolbar select {
+        padding: 10px 16px;
+        background: white;
+        border: 1px solid #d9e1ec;
+        border-radius: 8px;
+        color: #253a57;
+    }
+
+.preview-tag,
+.status-pill {
+    border-radius: 20px;
+    background: #eef2f8;
+    padding: 7px 10px;
+    font-size: 11px;
+    color: #64758e;
+}
+
+.section {
+    margin-bottom: 24px;
+}
+
+.section-title {
+    margin-bottom: 15px;
+}
+
+h2 {
+    font-size: 16px;
+    margin: 0;
+}
+
+.section-title span,
+.panel-header > span {
+    font-size: 11px;
+    color: #8794a7;
+}
+
+.kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 15px;
+}
+
+.kpi-card,
+.panel {
+    background: white;
+    border: 1px solid #e2e8f1;
+    border-radius: 13px;
+    box-shadow: 0 3px 14px rgba(30, 52, 85, .035);
+}
+
+.kpi-card {
+    padding: 21px;
+    border-top: 3px solid #3478ed;
+}
+
+    .kpi-card.green {
+        border-top-color: #15a479;
+    }
+
+    .kpi-card.red {
+        border-top-color: #e65b66;
+    }
+
+    .kpi-card.orange {
+        border-top-color: #e9a43d;
+    }
+
+    .kpi-card.gray {
+        border-top-color: #8392a8;
+    }
+
+    .kpi-card.purple {
+        border-top-color: #8b68d7;
+    }
+
+.kpi-label {
+    color: #66758c;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.kpi-value {
+    font-size: 33px;
+    font-weight: 750;
+    margin: 11px 0 8px;
+    letter-spacing: -1px;
+}
+
+.kpi-caption {
+    font-size: 11px;
+    color: #9aa5b6;
+}
+
+.insights-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    margin-bottom: 22px;
+}
+
+.panel {
+    padding: 23px;
+}
+
+.panel-header {
+    margin-bottom: 24px;
+}
+
+.progress-number,
+.quality-score {
+    font-size: 36px;
+    font-weight: 750;
+    margin-bottom: 20px;
+}
+
+    .progress-number span,
+    .quality-score span {
+        font-size: 12px;
+        font-weight: 400;
+        color: #8290a4;
+    }
+
+.progress-track {
+    height: 11px;
+    background: #e8eef5;
+    border-radius: 20px;
+    overflow: hidden;
+    margin-bottom: 25px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #3478ed;
+    border-radius: 20px;
+}
+
+.stat-row {
+    padding: 11px 0;
+    border-bottom: 1px solid #eef1f5;
+    font-size: 12px;
+    color: #718096;
+}
+
+    .stat-row strong {
+        color: #283b56;
+        font-size: 13px;
+    }
+
+.panel-note {
+    font-size: 11px;
+    line-height: 1.6;
+    color: #8794a6;
+    margin-top: 20px;
+}
+
+.suite-panel {
+    margin-bottom: 20px;
+}
+
+.table-wrapper {
+    overflow-x: auto;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+th {
+    text-align: left;
+    color: #8290a4;
+    font-weight: 600;
+    padding: 13px;
+    background: #f7f9fc;
+}
+
+td {
+    padding: 14px 13px;
+    border-bottom: 1px solid #edf1f6;
+}
+
+.dashboard-footer {
+    color: #97a2b2;
+    font-size: 11px;
+    text-align: center;
+    padding: 14px;
+}
+
+@media (max-width: 1000px) {
+    .sidebar {
+        width: 190px;
+    }
+
+    .main {
+        padding: 22px;
+    }
+
+    .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .insights-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 650px) {
+    .dashboard {
+        flex-direction: column;
+    }
+
+    .sidebar {
+        width: 100%;
+        padding: 16px;
+    }
+
+    .brand {
+        padding-bottom: 10px;
+    }
+
+    .nav-heading, .nav-item, .sidebar-footer {
+        display: none;
+    }
+
+    .main {
+        padding: 18px;
+    }
+
+    .kpi-grid {
+        gap: 10px;
+    }
+
+    .kpi-card {
+        padding: 14px;
+    }
+
+    .kpi-value {
+        font-size: 25px;
+    }
+
+    .toolbar {
+        flex-wrap: wrap;
+    }
+}

@@ -1,0 +1,12 @@
+node_modules/
+dist/
+*.vsix
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.pfx
+.vs/
+.idea/

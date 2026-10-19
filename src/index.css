@@ -1,0 +1,10 @@
+button { cursor: pointer; padding: 8px 12px; border: 1px solid #b5c1d1; border-radius: 6px; background: white; color: #18243a; }
+button:disabled { cursor: default; opacity: .6; }
+button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid #3478ed; outline-offset: 3px; }
+.error { background: #fff1f1; border: 1px solid #d43b49; color: #8c1420; padding: 16px; border-radius: 8px; }
+.suite-tree, .suite-tree ul { list-style: none; padding-left: 20px; }
+.suite-tree { padding-left: 0; }
+.suite-tree li { padding: 9px 0; }
+.suite-tree summary { cursor: pointer; }
+.suite-tree small { color: #64758e; }
+.panel p { line-height: 1.6; }
