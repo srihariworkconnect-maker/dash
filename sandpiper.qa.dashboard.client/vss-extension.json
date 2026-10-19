@@ -3,7 +3,7 @@
   "id": "sandpiper-quality-insights-dashboard",
   "name": "Sandpiper QA Command Center",
   "version": "1.0.1",
-  "description": "Live Azure DevOps test-plan analytics and execution history.",
+  "description": "QA analytics client. Requires an approved authenticated reporting API.",
   "publisher": "SandpiperQualityEngineering",
   "public": false,
   "targets": [{ "id": "Microsoft.VisualStudio.Services" }],
@@ -15,7 +15,7 @@
     "targets": ["ms.vss-dashboards-web.widget-catalog"],
     "properties": {
       "name": "Sandpiper QA Command Center",
-      "description": "Live test-point outcomes and retained execution history.",
+      "description": "Backend reporting client; enterprise connectivity requires approved configuration.",
       "catalogIconUrl": "dist/favicon.png",
       "uri": "dist/index.html",
       "supportedSizes": [{ "rowSpan": 4, "columnSpan": 4 }],

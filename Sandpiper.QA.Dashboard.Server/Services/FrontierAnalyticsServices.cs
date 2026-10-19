@@ -1,0 +1,128 @@
+using System.Text.Json;
+using Microsoft.Extensions.Options;
+using Sandpiper.QA.Dashboard.Server.Models;
+using Sandpiper.QA.Dashboard.Server.Services.Analytics;
+
+namespace Sandpiper.QA.Dashboard.Server.Services;
+
+// Preserve the original service and Frontier route while accepting additional plans.
+public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<AzureDevOpsOptions> options)
+{
+    public async Task<object> GetPlansAsync(CancellationToken ct) => new
+    {
+        value = (await ado.ListAsync("testplan/plans", ct))
+            .GroupBy(plan => AzureDevOpsClient.Number(plan, "id"))
+            .Select(group => new { id = group.Key, name = AzureDevOpsClient.Text(group.First(), "name") }).ToArray()
+    };
+
+    public Task<List<JsonElement>> GetSuitesAsync(int planId, CancellationToken ct) =>
+        ado.ListAsync($"testplan/Plans/{Positive(planId)}/suites", ct);
+
+    public Task<List<JsonElement>> GetPointsAsync(int planId, int suiteId, CancellationToken ct) =>
+        ado.ListAsync($"testplan/Plans/{Positive(planId)}/Suites/{Positive(suiteId)}/TestPoint", ct);
+
+    public async Task<PlanAnalytics> GetAnalyticsAsync(int planId, CancellationToken ct = default,
+        int? suiteId = null)
+    {
+        var snapshot = await LoadScopeAsync(planId, suiteId, ct);
+        var metrics = KpiCalculator.Calculate(snapshot.Points.Values.SelectMany(points => points));
+        var suites = snapshot.Suites.Select(suite => new SuiteAnalytics(suite.Id, suite.Name,
+            suite.ParentId, KpiCalculator.Calculate(snapshot.Points[suite.Id]))).ToList();
+        return new(planId, suiteId, metrics, suites, suites.Count, DateTimeOffset.UtcNow);
+    }
+
+    public async Task<object> GetReexecutionAsync(int planId, int? suiteId,
+        ReportingWindow window, CancellationToken ct)
+    {
+        if (window.From >= window.To) throw new ArgumentException("Reporting start must precede end.");
+        var snapshot = await LoadScopeAsync(planId, suiteId, ct);
+        var points = snapshot.Points.Values.SelectMany(values => values).Select(point => point.Id).ToHashSet();
+        var runs = await ado.HistoryAsync("test/runs", new() { ["planId"] = planId.ToString() }, ct);
+        var attempts = new List<ExecutionAttempt>();
+        foreach (var run in runs)
+        {
+            if (run.TryGetProperty("plan", out var plan) && AzureDevOpsClient.Number(plan, "id") != planId)
+                throw new InvalidDataException("History belongs to a different plan.");
+            var runId = AzureDevOpsClient.Number(run, "id");
+            var results = await ado.HistoryAsync($"test/Runs/{runId}/results", [], ct);
+            foreach (var result in results)
+            {
+                var pointId = result.TryGetProperty("testPoint", out var point)
+                    ? AzureDevOpsClient.Number(point, "id") : 0;
+                var date = AzureDevOpsClient.Text(result, "completedDate");
+                attempts.Add(new(runId, AzureDevOpsClient.Number(result, "id"), pointId > 0 ? pointId : null,
+                    AzureDevOpsClient.Text(result, "outcome"), AzureDevOpsClient.Text(result, "state"),
+                    DateTimeOffset.TryParse(date, out var completedAt) ? completedAt : null));
+            }
+        }
+        return new { planId, suiteId, metrics = KpiCalculator.Reexecution(attempts, points, window),
+            runs = runs.Count, retrievedAt = DateTimeOffset.UtcNow, rulesVersion = "2026-10-19.1",
+            scope = "Current selected points; retained accessible results in [from, to). Not an audit of deleted history." };
+    }
+
+    private async Task<ScopeSnapshot> LoadScopeAsync(int planId, int? selectedSuite, CancellationToken ct)
+    {
+        var elements = await GetSuitesAsync(planId, ct);
+        var map = new Dictionary<int, SuiteInfo>();
+        foreach (var element in elements) Collect(element, map, null);
+        foreach (var suite in map.Values)
+        {
+            HashSet<int> seen = [suite.Id];
+            var ancestor = suite.ParentId;
+            while (ancestor != null && map.TryGetValue(ancestor.Value, out var parent))
+            {
+                if (!seen.Add(ancestor.Value)) throw new InvalidDataException("Cyclic suite hierarchy.");
+                ancestor = parent.ParentId;
+            }
+        }
+        if (selectedSuite != null && !map.ContainsKey(selectedSuite.Value))
+            throw new ArgumentException("Selected suite does not belong to this plan.");
+        var included = map.Keys.ToHashSet();
+        if (selectedSuite != null)
+        {
+            included = [selectedSuite.Value];
+            var changed = true;
+            while (changed)
+            {
+                changed = false;
+                foreach (var suite in map.Values)
+                    if (suite.ParentId != null && included.Contains(suite.ParentId.Value))
+                        changed |= included.Add(suite.Id);
+            }
+        }
+        var suites = map.Values.Where(suite => included.Contains(suite.Id)).ToList();
+        var results = new System.Collections.Concurrent.ConcurrentDictionary<int, List<TestPointSnapshot>>();
+        await Parallel.ForEachAsync(suites, new ParallelOptions
+        {
+            MaxDegreeOfParallelism = options.Value.MaxConcurrency, CancellationToken = ct
+        }, async (suite, token) =>
+        {
+            var raw = await GetPointsAsync(planId, suite.Id, token);
+            results[suite.Id] = raw.Select(point => new TestPointSnapshot(AzureDevOpsClient.Number(point, "id"),
+                point.TryGetProperty("results", out var detail) && detail.ValueKind == JsonValueKind.Object
+                    ? AzureDevOpsClient.Text(detail, "outcome") : null)).ToList();
+        });
+        return new(suites, results.ToDictionary(pair => pair.Key, pair => pair.Value));
+    }
+
+    private static void Collect(JsonElement element, Dictionary<int, SuiteInfo> suites, int? parent)
+    {
+        var id = AzureDevOpsClient.Number(element, "id");
+        if (id <= 0) throw new InvalidDataException("Invalid suite identity.");
+        if (element.TryGetProperty("parentSuite", out var reference))
+        {
+            var parentId = AzureDevOpsClient.Number(reference, "id");
+            if (parentId > 0) parent = parentId;
+        }
+        var suite = new SuiteInfo(id, AzureDevOpsClient.Text(element, "name") ?? "", parent);
+        if (suites.TryGetValue(id, out var existing) && existing != suite)
+            throw new InvalidDataException("Conflicting suite metadata.");
+        suites[id] = suite;
+        if (element.TryGetProperty("children", out var children) && children.ValueKind == JsonValueKind.Array)
+            foreach (var child in children.EnumerateArray()) Collect(child, suites, id);
+    }
+
+    private static int Positive(int value) => value > 0 ? value : throw new ArgumentException("Invalid plan or suite ID.");
+    private record SuiteInfo(int Id, string Name, int? ParentId);
+    private record ScopeSnapshot(List<SuiteInfo> Suites, Dictionary<int, List<TestPointSnapshot>> Points);
+}

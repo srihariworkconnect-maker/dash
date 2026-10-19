@@ -1,0 +1,8 @@
+<Solution>
+  <Project Path="sandpiper.qa.dashboard.client/sandpiper.qa.dashboard.client.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+  <Project Path="Sandpiper.QA.Dashboard.Server/Sandpiper.QA.Dashboard.Server.csproj" />
+  <Project Path="tests/Sandpiper.QA.Dashboard.Server.Tests/Sandpiper.QA.Dashboard.Server.Tests.csproj" />
+</Solution>

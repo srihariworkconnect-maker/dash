@@ -10,3 +10,11 @@ dist/
 *.pfx
 .vs/
 .idea/
+bin/
+obj/
+*.csproj.user
+TestResults/
+coverage/
+.tools/
+appsettings.Local.json
+appsettings.*.Local.json

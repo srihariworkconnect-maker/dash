@@ -13,11 +13,11 @@ export function initializeAdoExtension(): Promise<void> {
             );
         }
 
-        SDK.init({ loaded: false, applyTheme: true });
+        const handshake = SDK.init({ loaded: false, applyTheme: true });
         let timeout: ReturnType<typeof setTimeout> | undefined;
         try {
             await Promise.race([
-                SDK.ready(),
+                handshake.then(() => SDK.ready()),
                 new Promise<never>((_, reject) => {
                     timeout = setTimeout(() => reject(new Error(
                         'Azure DevOps initialization timed out. Reload the widget.'

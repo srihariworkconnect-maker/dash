@@ -1,0 +1,6 @@
+@Sandpiper.QA.Dashboard.Server_HostAddress = http://localhost:5243
+
+GET {{Sandpiper.QA.Dashboard.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

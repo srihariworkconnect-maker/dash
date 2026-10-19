@@ -8,3 +8,5 @@ button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px
 .suite-tree summary { cursor: pointer; }
 .suite-tree small { color: #64758e; }
 .panel p { line-height: 1.6; }
+input { font: inherit; padding: 8px; border: 1px solid #b5c1d1; border-radius: 6px; width: 250px; }
+.toolbar { flex-wrap: wrap; }

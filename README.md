@@ -1,108 +1,127 @@
-# Sandpiper QA Command Center — live ADO widget
+# Sandpiper QA Command Center
 
-This is a complete replacement CLIENT project. It uses only live Azure DevOps data.
-There are no demo data files, sample KPI figures, PATs, localhost API calls, or ASP.NET dependencies.
-The original uploaded source and backend have not been modified.
+Live Azure DevOps QA reporting using React/TypeScript/Vite and ASP.NET Core Web API.
+The original Visual Studio solution structure is restored. This is an incremental
+reconciliation of the original backend and the previously pushed client, not a new app.
 
-## Install in your VDI
+## Structure
 
-1. Back up your existing `sandpiper.qa.dashboard.client` folder.
-2. Clone this repository into a NEW folder and open the repository root in VS Code.
-   All client files are at the repository root. Do not merge its `src` folder with
-   the old project: that would retain old demo files.
-3. Use Node.js 22.12+ or Node.js 24 LTS, with access to your approved npm registry.
-4. From this folder run:
+```text
+Sandpiper.QA.Dashboard.slnx
+Sandpiper.QA.Dashboard.Server/
+  Controllers/                   Existing diagnostic/template controllers
+  Models/                        Original suite models and reporting contracts
+  Services/
+    Analytics/KpiCalculator.cs   Shared KPI and re-execution definitions
+    Analytics/ReportingClock.cs  Europe/London cutoff periods
+    AzureDevOpsClient.cs         Authenticated ADO pagination and throttling
+    FrontierAnalyticsServices.cs Existing Frontier integration, reconciled
+sandpiper.qa.dashboard.client/
+  src/                          Existing React UI, now consuming the backend
+  tests/                        Backend-client contract tests
+  sandpiper.qa.dashboard.client.esproj
+  vss-extension.json
+tests/Sandpiper.QA.Dashboard.Server.Tests/
+docs/reporting-rules.md
+docs/implementation-report.md
+AGENTS.md
+```
 
-   ```powershell
-   npm install
-   npm run build
-   npm run lint
-   npm test
-   npm run package
-   ```
+## Run locally
 
-5. The manifest retains publisher `SandpiperQualityEngineering`, extension ID
-   `sandpiper-quality-insights-dashboard`, and widget ID `sandpiper-qa-widget` from
-   the supplied ZIP. Confirm these identify the extension you actually installed.
-   Version is `1.0.1`; raise it above the installed version if necessary.
-6. Upload the generated VSIX as an update to that private extension in the Visual
-   Studio Marketplace publishing portal. Share/install it in your organization.
-7. Open the intended PROJECT > Overview > Dashboards and add/reload the widget.
-   The signed-in user needs Test Plans access. The extension requests `vso.test` read scope.
+Prerequisites: .NET 10 SDK (the original target framework), a compatible Visual
+Studio installation for VisualStudioCredential, Node.js 22.12+ or 24 LTS, and your
+organizational ADO access. No PAT is required by this implementation.
 
-Opening index.html or localhost directly intentionally shows an instruction to open
-Azure DevOps. No fabricated figures are substituted when authentication is absent.
+1. From the repository root run `npm --prefix sandpiper.qa.dashboard.client ci`.
+2. Open `Sandpiper.QA.Dashboard.slnx` in Visual Studio, sign in with your authorized
+   organizational account, and select the server's `http` launch profile.
+3. The original SPA proxy launch configuration starts Vite at
+   `http://localhost:64423`; its `/api` proxy targets the local API at port 5243.
 
-This client is independent of the original Visual Studio .slnx and .esproj.
-Run the commands above from this new folder; do not run the old ASP.NET solution
-to launch this replacement. Keep your backend source separately if needed for other work.
+For explicit two-terminal startup:
 
-## Full source map
+```powershell
+# Terminal 1, repository root
+dotnet run --project Sandpiper.QA.Dashboard.Server --launch-profile http -p:BuildClient=false
 
-| File | Purpose |
-| --- | --- |
-| src/main.tsx | Startup and initialization error screen |
-| src/adoExtension.ts | ADO SDK handshake and widget load/reload registration |
-| src/App.tsx | Live plan selection, snapshots, errors, refresh, history and suite explorer |
-| src/services/adoApi.ts | Authenticated GET requests, pagination, throttling handling and cancellation |
-| src/services/qaAnalytics.ts | Latest-outcome KPIs and live re-execution aggregation |
-| src/types/ado.ts | ADO response types |
-| src/components/TestSuiteTree.tsx | Expandable suite hierarchy |
-| src/App.css, src/index.css | Dashboard styling |
-| vite.config.ts | Relative production asset paths |
-| vss-extension.json | Private ADO widget package definition |
-| package.json, tsconfig*.json, eslint.config.js | Dependencies and build configuration |
+# Terminal 2, repository root (if Visual Studio/SPA proxy has not started Vite)
+npm run dev
+```
 
-## KPI policy
+Alternatively use `--no-launch-profile` and set `ASPNETCORE_ENVIRONMENT=Development`
+and `--urls http://localhost:5243` to run the backend without automatic SPA startup.
+Do not start a second Vite instance on the same port.
 
-- Total = distinct current test-point IDs in all returned suites.
-- Executed = current outcome passed, failed, inconclusive, timeout, aborted or error.
-- Applicable = total minus notApplicable.
-- Execution progress = executed / applicable, or 0 when denominator is 0.
-- Pass rate = passed / executed, or 0 when denominator is 0.
-- Blocked, pending, paused/in-progress and unknown are displayed separately.
-- Missing, unspecified or unfamiliar outcomes are unknown, never automatically executed.
-- These are explicit dashboard definitions, not a promise to match every ADO built-in chart.
-- Snapshots are fetched on load, plan change and refresh. There is no automatic polling.
-  ADO can change while pages are being fetched; this is not a transactional snapshot.
+Development organization/project/tenant defaults preserve the original configuration
+in `appsettings.Development.json`. Override with environment variables such as
+`AzureDevOps__Organization`, `AzureDevOps__Project`, `AzureDevOps__TenantId`, or an
+ignored server `appsettings.Local.json`. Do not store secrets in committed settings.
+`AzureDevOps__DsrCutoff` uses `HH:mm`, default `18:00`, Europe/London.
 
-## Re-execution
+## Local access boundary
 
-Click **Load live execution history** after the current plan has loaded. This is
-separate because reading all retained runs and results can be expensive.
+Data routes are Development-only and require a loopback remote address, a localhost
+Host, an allowed Origin when supplied, and `X-Sandpiper-Client: dashboard`. The client
+adds that header automatically. CORS is supplementary, not authentication. This is
+a single-user developer API using that developer's Visual Studio identity; it is not
+an enterprise multi-user authentication implementation.
 
-- Scope is all accessible retained runs associated with the selected plan, restricted
-  to point IDs currently in the plan. There is NO implicit release/date window.
-- Each distinct `(run ID, result ID)` counts once if its state is Completed and its
-  outcome is one of the completed execution outcomes above.
-- Re-executed points = distinct point IDs with at least two qualifying result records.
-- Additional executions = sum of `(count - 1)` across those points.
-- Iterations, test steps, blocked outcomes and N/A outcomes do not count separately.
-- Missing test-point links are reported; a complete plan total is withheld in that case.
-- Deleted/retention-expired executions cannot be recovered. This is retained result
-  history, not an audit of every historical retry or every change to a result.
+`GET /api/health` verifies the API process only; `adoConnected` is null. The legacy
+`/api/auth/check` can check token availability, not ADO resource authorization.
+Existing Frontier analytics/suites/points route names remain available, and the
+analytics response retains legacy top-level aggregate fields. All positive plan IDs
+are supported, including Frontier AI 819259 and Frontier AI – R2 839718; plan discovery
+comes from ADO, not a hardcoded allowlist.
 
-## Verification in your VDI
+## Reporting
 
-Build/lint and installed ADO operation must be verified in your environment.
-Test a paginated plan, all outcome categories, changing plans during loading,
-permission errors, refresh, and two distinct completed results for the same point.
-Check the browser network panel: no request should target localhost.
+See `docs/reporting-rules.md` for the authoritative rules. Primary pass rate includes
+blocked and N/A in Executed. Secondary is Passed/(Passed+Failed+Blocked). Progress
+excludes N/A from both its numerator and applicable denominator. Every raw status is
+available in the API and UI. No frontend KPI formulas or demo fallback remain.
 
-Validation completed locally: TypeScript/Vite production build, ESLint, seven
-automated KPI/history/pagination checks, and VSIX packaging all passed.
-An authenticated installed-widget test in your VDI is still required.
+Suite filtering includes descendants. Overall totals deduplicate point identities;
+suite rows are explicitly own-suite totals and must not be summed as rollups.
 
-Dependency versions follow the supplied project's manifests except the packaging
-tool, pinned to tfx-cli 0.22.1 after audit identified high-severity dependencies in
-the original version. Two moderate audit findings remain in the packaging tool's
-uuid dependency chain. This is development tooling and is not bundled into the
-browser widget. See VALIDATION.md for the scope of verification.
+History requires an explicit offset-aware `[from, to)` period. The UI defaults to the
+last completed DSR cutoff period in Europe/London. For TCR, enter agreed release
+boundaries. It scans retained accessible result records for the current selected
+points; it cannot recover deleted results, overwritten retries or historical scope.
 
-## API references
+## Build and test
 
-- https://learn.microsoft.com/en-us/rest/api/azure/devops/testplan/test-plans/list?view=azure-devops-rest-7.1
-- https://learn.microsoft.com/en-us/rest/api/azure/devops/testplan/test-suites/get-test-suites-for-plan?view=azure-devops-rest-7.1
-- https://learn.microsoft.com/en-us/rest/api/azure/devops/testplan/test-point/get-points-list?view=azure-devops-rest-7.1
-- https://learn.microsoft.com/en-us/rest/api/azure/devops/test/runs/list?view=azure-devops-rest-7.1
-- https://learn.microsoft.com/en-us/rest/api/azure/devops/test/results/list?view=azure-devops-rest-7.1
+```powershell
+npm run build
+npm run lint
+npm test
+dotnet build Sandpiper.QA.Dashboard.slnx -p:BuildClient=false -p:ShouldRunNpmInstall=false
+dotnet test tests/Sandpiper.QA.Dashboard.Server.Tests -p:BuildClient=false
+npm run package
+```
+
+The .esproj retains the original separate frontend build behavior; `npm run build`
+performs TypeScript/Vite compilation. `BuildClient=false` allows backend/test builds
+without recursively building the JavaScript project. Build outputs and VSIX files
+are ignored by Git. Original weather template files are retained, unrelated to QA KPIs.
+
+## Installed extension and enterprise hosting
+
+The extension SDK lifecycle, contribution IDs and relative assets are retained.
+`npm run package` creates the VSIX. Packaging is not a connectivity test.
+
+An installed extension requires an approved HTTPS API endpoint and caller
+authentication. `VITE_API_BASE_URL` supplies an environment-specific endpoint including
+`/api`; production localhost URLs are rejected. With no endpoint, the widget clearly
+reports missing configuration. The current backend deliberately returns 503 for
+production data routes until enterprise authentication is implemented and approved.
+No extension access token is blindly accepted by this API.
+
+AXA hosting, managed database and workload identities remain pending approval. No
+infrastructure was provisioned. Current local connectivity was tested, but live ADO
+plan discovery returned 503 because VisualStudioCredential was unavailable on the
+implementation machine. Installed-extension backend connectivity is unverified.
+
+DSR/TCR document generation, persistence, automated distribution, defect/risk and
+leadership dashboards remain future work. See `VALIDATION.md` for exact checks and
+limitations, including packaging-tool dependency findings.
