@@ -47,6 +47,22 @@ export interface NormalizedPoint {
 }
 
 export interface ReportingWindow { from: string; to: string }
+export interface ExecutionEvent {
+    key: string; runId: number; resultId: number; pointId: number | null; outcome: string;
+    state: string | null; completedAt: string | null; performer: Identity | null;
+    bugIds: number[]; sourceUrl: string | null; qualifies: boolean; isRepeat: boolean; transition: string | null;
+}
+export interface ExecutionIntelligence {
+    window: ReportingWindow; baseline: ReportingWindow; events: ExecutionEvent[];
+    productivity: { testerKey: string; tester: string; day: string; assignedPoints: number; pendingAssigned: number;
+        executionEvents: number; uniquePoints: number; passed: number; failed: number; blocked: number;
+        repeatEvents: number; reExecutedPoints: number }[];
+    daily: { day: string; executionEvents: number; uniquePoints: number; repeatEvents: number; passed: number; failed: number; blocked: number }[];
+    points: { pointId: number; executionCount: number; repeatCount: number }[];
+    reExecutedPoints: number | null; repeatEvents: number; uniquePoints: number;
+    missingPointLinks: number; missingDates: number; ambiguousChronology: number;
+    complete: boolean; attribution: string; limitations: string[];
+}
 export interface HistoryAnalytics {
     planId: number;
     suiteId: number | null;
@@ -131,6 +147,12 @@ export function createBackendClient(baseUrl: string) {
         },
         dsrPeriod: (signal: AbortSignal) => get<ReportingWindow>('/reporting/dsr-period', signal),
         period: (preset: string, signal: AbortSignal) => get<ReportingWindow>(`/reporting/period?preset=${encodeURIComponent(preset)}`, signal),
+        activity: (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal) => {
+            const query = new URLSearchParams({ from, to, baselineFrom });
+            if (suiteId != null) query.set('suiteId', String(suiteId));
+            if (tester) query.set('tester', tester);
+            return get<ExecutionIntelligence>(`/v2/activity/${planId}?${query}`, signal);
+        },
         history: (planId: number, suiteId: number | null, window: ReportingWindow, signal: AbortSignal) => {
             const query = new URLSearchParams({ from: window.from, to: window.to });
             if (suiteId != null) query.set('suiteId', String(suiteId));

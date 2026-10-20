@@ -24,6 +24,7 @@ builder.Services.AddHttpClient<AzureDevOpsClient>(client => client.Timeout = Tim
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient<AzureDevOpsService>();
 builder.Services.AddTransient<FrontierAnalyticsService>();
+builder.Services.AddTransient<ExecutionHistoryService>();
 var origins = builder.Configuration.GetSection("Dashboard:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddPolicy("DashboardClient", policy =>
 {
@@ -117,6 +118,9 @@ app.MapGet("/api/reporting/dsr-period", (Microsoft.Extensions.Options.IOptions<A
     ReportingClock.LastDsrPeriod(DateTimeOffset.UtcNow, TimeOnly.ParseExact(settings.Value.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture)));
 app.MapGet("/api/reporting/period", (string preset, Microsoft.Extensions.Options.IOptions<AzureDevOpsOptions> settings) =>
     ReportingClock.Preset(DateTimeOffset.UtcNow, preset, TimeOnly.ParseExact(settings.Value.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture)));
+app.MapGet("/api/v2/activity/{planId:int}", (int planId, int? suiteId, string from, string to, string baselineFrom,
+    string? tester, ExecutionHistoryService service, CancellationToken ct) =>
+    service.ActivityAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));
 app.MapControllers();
 app.Run();
 

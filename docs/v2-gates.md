@@ -34,3 +34,18 @@ saved views, large plans, links, keyboard navigation and no stale scope after sw
 Limitations: corporate data unvalidated; historical and work-item columns await C/E.
 Today/Yesterday are UK cutoff days (may be in progress); Release-to-Date requires an
 explicit start. No mandatory release mapping or fabricated metrics are introduced.
+
+## Gate C — execution and productivity
+
+Added normalized run/result events, actual performer identities, baseline-aware repeat
+events, period activity, daily UK-day trends, status events, distinct point counts,
+and chronological failed/passed transitions. Result-level bug IDs are retained as
+source relationships, not interpreted as verified defects. Unattributed performers,
+missing dates/links and equal-time chronology are explicit.
+
+Tests: 30 backend tests, client build/lint and existing client regressions. VDI: use
+a point executed before the selected day and again within it; choose a baseline
+covering both. Confirm repeat event today, distinct point unchanged, performer differs
+from assignee where appropriate. Compare result IDs and links in ADO.
+Limitations: current assignments are not historical assignments; retained results
+cannot recover overwritten retries/deleted points. Corporate integration unvalidated.

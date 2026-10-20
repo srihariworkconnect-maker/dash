@@ -4,6 +4,7 @@ import type { AdoTestPlan } from '../types/ado';
 import { initialContext, changePlan, pointRows, suiteRows } from './ReportingContext';
 import DataTable, { type Column, type DataRow } from '../components/DataTable';
 import TestSuiteTree from '../components/TestSuiteTree';
+import ActivityPanel from '../components/ActivityPanel';
 import '../v2.css';
 
 const modules = ['Overview', 'Test Explorer', 'Live TCM', 'Productivity Tracker', 'DSR Center', 'TCR Center', 'Execution Intelligence', 'Quality Intelligence'];
@@ -133,7 +134,8 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
             {module === 'Settings' && <section className="cc-panel"><h2>Reporting settings</h2><p>Europe/London · default cutoff 18:00. Configure server AzureDevOps:DsrCutoff to change it.</p>
                 <p>No mandatory release mapping. Select a plan/subtree and explicit baseline dates. Saved table views store columns and sort metadata only.</p>
                 <p>Enterprise endpoint, database and authentication require AXA approval. The API remains local-development only.</p></section>}
-            {!['Overview', 'Test Explorer', 'Live TCM', 'Data Reconciliation', 'Settings'].includes(module) && <section className="cc-panel"><h2>{module}</h2><p>Dependent evidence and services are being added in subsequent gate commits. Unavailable metrics are not zero.</p></section>}
+            {snapshot && ['Productivity Tracker', 'Execution Intelligence'].includes(module) && <ActivityPanel key={JSON.stringify(context)} api={api} context={context} mode={module} />}
+            {!['Overview', 'Test Explorer', 'Live TCM', 'Data Reconciliation', 'Settings', 'Productivity Tracker', 'Execution Intelligence'].includes(module) && <section className="cc-panel"><h2>{module}</h2><p>Dependent evidence and services are being added in subsequent gate commits. Unavailable metrics are not zero.</p></section>}
             {detail && <aside className="detail-panel" aria-label="Record details"><button onClick={() => setDetail(null)}>Close details ×</button><h2>Source record</h2>
                 {Object.entries(detail).map(([key, value]) => <div className="stat-row" key={key}><span>{key}</span><strong>{value == null ? 'Unavailable' : String(value)}</strong></div>)}</aside>}
         </main></div></div>;
