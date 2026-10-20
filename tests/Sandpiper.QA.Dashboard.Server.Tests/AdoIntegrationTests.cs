@@ -30,6 +30,18 @@ public class AdoIntegrationTests
         return new(new HttpClient(new Handler(handler)), new Credential(), options, new AdoRequestGate(options));
     }
 
+    [Theory]
+    [InlineData("https://dev.azure.com/fixture/_apis/wit/workItems/10", 10)]
+    [InlineData("https://fixture.visualstudio.com/project/_apis/wit/workItems/10", 10)]
+    [InlineData("https://dev.azure.com/another-org/_apis/wit/workItems/10", null)]
+    [InlineData("https://untrusted.example/fixture/_apis/wit/workItems/10", null)]
+    [InlineData("https://dev.azure.com/fixture/_apis/wit/attachments/10", null)]
+    [InlineData("https://user:password@dev.azure.com/fixture/_apis/wit/workItems/10", null)]
+    public void RelationshipIdentityRequiresConfiguredOrganizationAndActualWorkItemPath(string url, int? expected)
+    {
+        Assert.Equal(expected, Client(_ => throw new InvalidOperationException("No network is needed to parse a relationship")).WorkItemId(url));
+    }
+
     [Fact]
     public async Task ContinuationIsEncodedInQueryAndNotARequestHeader()
     {

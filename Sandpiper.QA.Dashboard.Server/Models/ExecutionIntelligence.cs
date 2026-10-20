@@ -18,4 +18,10 @@ public record ExecutionIntelligence(ReportingWindow Window, ReportingWindow Base
     IReadOnlyList<DailyActivity> Daily, IReadOnlyList<PointActivity> Points,
     int? ReExecutedPoints, int RepeatEvents, int UniquePoints, int MissingPointLinks,
     int MissingDates, int AmbiguousChronology, bool Complete, string Attribution,
-    IReadOnlyList<string> Limitations);
+    IReadOnlyList<string> Limitations)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CaseRetesting? CaseRetesting { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public EvidenceAssessment? Evidence { get; init; }
+}

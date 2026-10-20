@@ -133,6 +133,22 @@ See `docs/reporting-rules.md` for implementation details and unresolved decision
   Do not replace Europe/London with a fixed UTC offset or the developer's timezone.
 - Use the shared backend KpiCalculator; do not reintroduce frontend metric formulas.
 
+## Case-level business KPIs (20 October 2026 enhancement)
+
+- Total Test Cases deduplicates mapped ADO Test Case IDs; Total Test Points stays
+  distinct point IDs. Re-execution never inflates either population.
+- Executed Test Cases has at least one current point in the agreed executed-status
+  set, including Blocked/N/A. Case Execution Coverage is executed cases / total cases.
+  Point Execution Progress remains separately labelled and excludes N/A.
+- Do not infer case-level Passed/Failed/Blocked status across configurations.
+  Outcome cards and both pass-rate calculations remain point-based.
+- Re-executed Test Cases deduplicates case IDs with a repeated qualifying point in
+  the selected baseline. Preserve technical point and repeat-event counters.
+- Unknown identity/history/relationship evidence withholds affected complete totals.
+  A verified empty retained scope can be zero; unknown is never zero.
+- Scoped Bug totals use inspected case/result relationships, not project-wide Bugs.
+  Unknown state categories withhold open/completed counts. No automatic verification.
+
 ## Current repository status
 
 The user has authorized V2 Gates A–F sequential implementation and meaningful commits

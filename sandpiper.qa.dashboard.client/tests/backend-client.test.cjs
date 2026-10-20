@@ -15,6 +15,22 @@ function load(fetch) {
     return module.exports;
 }
 
+test('evidence permission failures retain an explicit status instead of becoming empty data', async () => {
+    const exports = load(async () => Response.json({}, { status: 403 }));
+    await assert.rejects(exports.createBackendClient('/api').evidence(1, null, '2026-10-19T00:00:00Z', '2026-10-20T00:00:00Z', '2026-10-18T00:00:00Z', '', new AbortController().signal),
+        error => error instanceof exports.BackendRequestError && error.status === 403 && /Permission denied/.test(error.message));
+});
+
+test('evidence preserves unavailable null metrics and rejects mismatched boundaries', async () => {
+    const from = '2026-10-19T00:00:00Z', to = '2026-10-20T00:00:00Z', baselineFrom = '2026-10-18T00:00:00Z';
+    const body = { snapshot: { planId: 1, suiteId: null, complete: true, connected: true }, activity: { window: { from, to }, baseline: { from: baselineFrom }, caseRetesting: { reExecutedTestCases: null } }, quality: { totalLinkedDefects: null, openLinkedDefects: null } };
+    const api = load(async () => Response.json(body)).createBackendClient('/api');
+    const result = await api.evidence(1, null, from, to, baselineFrom, '', new AbortController().signal);
+    assert.equal(result.activity.caseRetesting.reExecutedTestCases, null); assert.equal(result.quality.totalLinkedDefects, null);
+    body.activity.window.to = '2026-10-21T00:00:00Z';
+    await assert.rejects(api.evidence(1, null, from, to, baselineFrom, '', new AbortController().signal), /mismatched evidence/);
+});
+
 test('standalone local uses same-origin proxy without embedding localhost in production', () => {
     const { resolveApiBase } = load();
     assert.equal(resolveApiBase(true, false), '/api');

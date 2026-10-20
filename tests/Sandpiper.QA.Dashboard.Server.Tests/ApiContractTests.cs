@@ -20,10 +20,11 @@ public class ApiContractTests
         public override AccessToken GetToken(TokenRequestContext context, CancellationToken ct) => new("fixture-only", DateTimeOffset.MaxValue);
         public override ValueTask<AccessToken> GetTokenAsync(TokenRequestContext context, CancellationToken ct) => ValueTask.FromResult(GetToken(context, ct));
     }
-    private sealed class Fixture : HttpMessageHandler
+    private sealed class Fixture(HttpStatusCode? error = null) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            if (error != null) return Task.FromResult(new HttpResponseMessage(error.Value) { Content = new StringContent("fixture-upstream-body-must-not-be-exposed") });
             var suites = request.RequestUri!.AbsolutePath.EndsWith("/suites");
             var json = suites ? "{\"value\":[{\"id\":10,\"name\":\"fixture-suite\"}]}"
                 : "{\"value\":[{\"id\":1,\"results\":{\"outcome\":\"passed\"}},{\"id\":2,\"results\":{\"outcome\":\"blocked\"}},{\"id\":3,\"results\":{\"outcome\":\"notApplicable\"}}]}";
@@ -38,7 +39,7 @@ public class ApiContractTests
             next(app);
         };
     }
-    private static WebApplicationFactory<Program> Factory(string environment = "Development") =>
+    private static WebApplicationFactory<Program> Factory(string environment = "Development", HttpStatusCode? upstreamError = null) =>
         new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
         {
             builder.UseEnvironment(environment);
@@ -47,7 +48,7 @@ public class ApiContractTests
                 services.RemoveAll<TokenCredential>();
                 services.AddSingleton<TokenCredential>(new Credential());
                 services.AddSingleton<IStartupFilter, Loopback>();
-                services.AddHttpClient<AzureDevOpsClient>().ConfigurePrimaryHttpMessageHandler(() => new Fixture());
+                services.AddHttpClient<AzureDevOpsClient>().ConfigurePrimaryHttpMessageHandler(() => new Fixture(upstreamError));
             });
         });
 
@@ -66,6 +67,17 @@ public class ApiContractTests
         Assert.Equal(3, body.GetProperty("metrics").GetProperty("executed").GetInt32());
         Assert.Equal(50, body.GetProperty("metrics").GetProperty("secondaryPassRate").GetDouble());
         Assert.Equal(body.GetProperty("metrics").GetProperty("primaryPassRate").GetDouble(), body.GetProperty("passPercentage").GetDouble());
+    }
+
+    [Fact]
+    public async Task UpstreamPermissionFailureRemainsExplicitWithoutLeakingSourcePayload()
+    {
+        await using var factory = Factory(upstreamError: HttpStatusCode.Forbidden); using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.Add("X-Sandpiper-Client", "dashboard");
+        var response = await client.GetAsync("/api/ado/frontier/analytics/819259");
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var body = await response.Content.ReadAsStringAsync(); Assert.DoesNotContain("fixture-upstream-body", body);
+        using var json = JsonDocument.Parse(body); Assert.Equal("PermissionDenied", json.RootElement.GetProperty("code").GetString());
     }
 
     [Fact]

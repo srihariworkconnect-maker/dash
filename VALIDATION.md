@@ -1,5 +1,16 @@
 # V2 validation — 20 October 2026
 
+Latest increment: [Complete KPI/UI enhancement](docs/kpi-ui-enhancement.md), compared
+with `43139e8`. **68 backend tests, 12 client tests and 8 Chromium browser tests pass.**
+Shared case coverage/retesting, scoped defect totals, combobox keyboard/focus behavior,
+evidence-state rendering and matching KPI drills are covered. Existing point-based
+API/KPI/Frontier regression coverage is retained. No production thresholds were enabled.
+The detailed Gate A–F validation below records the preceding implementation baseline.
+
+Fresh non-mocked proxy check: health Healthy, organizational credential unavailable,
+ADO plan discovery 503, and an invalid reporting baseline rejected with 400 before
+source retrieval. Source payloads were withheld; temporary servers were stopped.
+
 ## Passed
 
 - Full restored `.slnx` build with `BuildClient=false` and

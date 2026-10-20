@@ -7,7 +7,7 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../src/app/
 const moduleState = { exports: {} };
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText,
     { module: moduleState, exports: moduleState.exports });
-const { changePlan, pointRows, matchesOutcome } = moduleState.exports;
+const { changePlan, pointRows, matchesOutcome, suiteOptions } = moduleState.exports;
 test('plan changes reset suite and tester while preserving reporting dates', () => {
     const next = changePlan({ planId: 1, suiteId: 2, tester: 'identity', from: 'start', to: 'end' }, 3);
     assert.equal(next.planId, 3); assert.equal(next.suiteId, null); assert.equal(next.tester, ''); assert.equal(next.from, 'start');
@@ -24,4 +24,8 @@ test('KPI drill-through includes each approved denominator category without recl
     assert.equal(matchesOutcome('notApplicable', 'applicable'), false);
     assert.equal(matchesOutcome('blocked', 'secondary'), true);
     assert.equal(matchesOutcome('notApplicable', 'secondary'), false);
+});
+test('searchable suite choices retain complete parent paths and hierarchy order', () => {
+    const choices = suiteOptions([{ suiteId: 3, suiteName: 'Leaf', parentSuiteId: 2 }, { suiteId: 1, suiteName: 'Root', parentSuiteId: null }, { suiteId: 2, suiteName: 'Child', parentSuiteId: 1 }]);
+    assert.equal(choices[0].value, '1'); assert.equal(choices[2].label, 'Root / Child / Leaf · 3'); assert.equal(choices[2].depth, 2);
 });

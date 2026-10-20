@@ -16,7 +16,7 @@ public static class QualityCalculator
     public static QualityEvidence Assess(PlanAnalytics snapshot, ExecutionIntelligence activity, QualityEvidence quality, QualityRules rules)
     {
         var reasons = quality.RiskReasons.ToList();
-        var readiness = quality.ReleaseReadiness;
+        var readiness = "Not Assessed — approved quality thresholds are not enabled";
         if (rules.Enabled)
         {
             if (!quality.Available || !quality.RelationshipsComplete || snapshot.Metrics.Unknown > 0 ||

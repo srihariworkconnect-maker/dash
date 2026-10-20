@@ -32,20 +32,24 @@ test.beforeEach(async ({ page }) => {
     });
 });
 const nav = (page, name) => page.getByRole('navigation').getByRole('button', { name: new RegExp(name) });
+const choose = async (page, label, text) => {
+    await page.getByRole('combobox', { name: label, exact: true }).click();
+    await page.getByRole('option', { name: new RegExp(text) }).click();
+};
 
 test('all eight modules keep shared dates; changing plan resets incompatible scope', async ({ page }) => {
     const errors = []; page.on('pageerror', e => errors.push(e.message));
     await page.goto('/'); await expect(page.getByRole('heading', { name: 'Current execution snapshot' })).toBeVisible();
     await page.getByLabel('Repeat baseline start').fill('2026-10-01T00:00:00Z');
-    await page.getByLabel('Suite subtree', { exact: true }).selectOption('2');
-    await page.getByLabel('Tester', { exact: true }).selectOption('actor-1');
+    await choose(page, 'Test Suite', 'Child');
+    await choose(page, 'Tester', 'Fixture actor');
     for (const name of ['Test Explorer', 'Live TCM', 'Productivity Tracker', 'DSR Center', 'TCR Center', 'Execution Intelligence', 'Quality Intelligence', 'Overview']) {
         await nav(page, name).click(); await expect(page.locator('.cc-nav button.selected')).toContainText(name);
         await expect(page.getByLabel('Repeat baseline start')).toHaveValue('2026-10-01T00:00:00Z');
     }
-    await page.getByLabel('Test plan', { exact: true }).selectOption('839718');
-    await expect(page.getByLabel('Suite subtree', { exact: true })).toHaveValue('');
-    await expect(page.getByLabel('Tester', { exact: true })).toHaveValue('');
+    await choose(page, 'Test Plan', 'Fixture plan B');
+    await expect(page.getByRole('combobox', { name: 'Test Suite', exact: true })).toContainText('All Suites');
+    await expect(page.getByRole('combobox', { name: 'Tester', exact: true })).toContainText('All testers');
     expect(errors).toEqual([]);
 });
 
@@ -74,4 +78,88 @@ test('refresh invalidates source caches and failures never display fabricated li
     await page.getByRole('button', { name: /↻ Refresh/ }).click();
     await expect(page.getByRole('alert')).toContainText('503');
     await expect(page.getByRole('heading', { name: 'Current execution snapshot' })).toHaveCount(0);
+});
+
+test('combobox search is internal, keyboard selection restores focus, Escape preserves selection', async ({ page }) => {
+    await page.goto('/'); await expect(page.getByRole('heading', { name: 'Current execution snapshot' })).toBeVisible();
+    await expect(page.getByRole('searchbox')).toHaveCount(0);
+    const plan = page.getByRole('combobox', { name: 'Test Plan', exact: true });
+    await plan.focus(); await plan.press('ArrowDown');
+    const search = page.getByRole('searchbox', { name: 'Search Test Plan' }); await expect(search).toBeFocused();
+    await search.fill('plan B'); await expect(page.getByRole('listbox').getByRole('option')).toHaveCount(1);
+    await search.press('Enter'); await expect(plan).toContainText('Fixture plan B'); await expect(plan).toBeFocused();
+    await plan.click(); await page.getByRole('searchbox').fill('no such plan'); await expect(page.getByText('No matching options', { exact: true })).toBeVisible();
+    await page.getByRole('searchbox').press('Escape'); await expect(plan).toBeFocused(); await expect(plan).toContainText('Fixture plan B');
+    await page.getByRole('combobox', { name: 'Test Suite', exact: true }).click();
+    await expect(page.getByRole('option', { name: /Root \/ Child/ })).toBeVisible();
+    await page.getByRole('searchbox').press('Escape');
+});
+
+function businessFixture() {
+    const source = snapshot(819259, null, ''); source.points = source.points.slice(0, 3).map((p, i) => ({ ...p, testCaseId: i < 2 ? 1001 : 1002, outcome: i === 0 ? 'passed' : 'notexecuted' }));
+    source.metrics = { ...metrics, total: 3, passed: 1, pending: 2, executed: 1, applicable: 3, executedApplicable: 1, executionRate: 33.3333, statuses: { passed: 1, notexecuted: 2 } };
+    source.suites = source.suites.map(s => ({ ...s, metrics: s.suiteId === 2 ? source.metrics : { ...source.metrics, total: 0, passed: 0, pending: 0, executed: 0, applicable: 0, executedApplicable: 0, statuses: {} }, subtreeMetrics: source.metrics }));
+    source.caseMetrics = { totalTestCases: 2, executedTestCases: 1, executionCoverage: 50, knownTestCases: 2, knownExecutedTestCases: 1, missingCaseMappings: 0, state: 'Verified', testCaseIds: [1001, 1002], executedCaseIds: [1001] };
+    const attempts = [1, 2, 3, 4].map((id, i) => ({ key: `1:${id}`, runId: 1, resultId: id, pointId: i < 2 ? 1 : 2, outcome: 'passed', completedAt: '2026-10-19T18:00:00Z', performer: { key: 'actor-1', displayName: 'Fixture actor' }, qualifies: true, isRepeat: i % 2 === 1, bugIds: [], transition: null }));
+    const activity = { window: { from: '2026-10-19T17:00:00Z', to: '2026-10-20T17:00:00Z' }, baseline: { from: '2026-10-01T00:00:00Z', to: '2026-10-20T17:00:00Z' },
+        events: attempts, productivity: [], daily: [], points: [{ pointId: 1, executionCount: 2, repeatCount: 1 }, { pointId: 2, executionCount: 2, repeatCount: 1 }], reExecutedPoints: 2, repeatEvents: 2, uniquePoints: 2,
+        missingPointLinks: 0, missingDates: 0, complete: true, limitations: [], evidence: { state: 'Verified', reasons: [] },
+        caseRetesting: { reExecutedTestCases: 1, knownReExecutedTestCases: 1, missingCaseMappings: 0, state: 'Verified', cases: [{ caseId: 1001, pointIds: [1, 2], attempts }] } };
+    const quality = { available: true, relationshipsComplete: true, evidence: { state: 'Verified', reasons: [] }, schemaStatus: 'Synthetic test schema',
+        totalLinkedDefects: 2, openLinkedDefects: 1, completedLinkedDefects: 1, releaseReadiness: 'Not Assessed', riskReasons: [], cases: [], bugActivity: [], limitations: [],
+        defects: [9001, 9002].map((id, i) => ({ bugId: id, title: `Synthetic bug ${id}`, state: i ? 'Closed' : 'Active', category: i ? 'Completed' : 'InProgress', linkedCaseIds: [1001], relatedResults: attempts, verificationEvidence: [] })) };
+    return { snapshot: source, activity, quality, retrievedAt: source.retrievedAt };
+}
+const kpi = (page, label) => page.locator('button.business-kpi').filter({ has: page.locator('small').getByText(label, { exact: true }) });
+async function installBusiness(page, evidence, status = 200, delay = 0) {
+    await page.route('**/api/ado/frontier/analytics/**', route => route.fulfill({ json: evidence.snapshot }));
+    await page.route('**/api/v2/evidence/**', async route => {
+        if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+        await route.fulfill({ status, json: status === 200 ? evidence : {} });
+    });
+    await page.goto('/'); await expect(page.getByRole('heading', { name: 'Current execution snapshot' })).toBeVisible();
+    await page.getByLabel('Repeat baseline start').fill('2026-10-01T00:00:00Z');
+}
+
+test('Overview case and defect KPIs match drill rows and retain technical point counts', async ({ page }) => {
+    await installBusiness(page, businessFixture(), 200, 500);
+    await expect(kpi(page, 'Total Defects').locator('b')).toHaveText('Loading');
+    await expect(kpi(page, 'Total Defects').locator('b')).toHaveText('2');
+    await expect(kpi(page, 'Total Test Cases').locator('b')).toHaveText('2');
+    await expect(kpi(page, 'Total Test Points').locator('b')).toHaveText('3');
+    await expect(kpi(page, 'Executed Test Cases').locator('b')).toHaveText('1');
+    await expect(kpi(page, 'Execution Coverage').locator('b')).toHaveText('50.0%');
+    await expect(kpi(page, 'Re-executed Test Cases').locator('b')).toHaveText('1');
+    await expect(kpi(page, 'Release Readiness').locator('b')).toHaveText('Not Assessed');
+    await page.screenshot({ path: 'test-results/overview-kpi-enhancement.png', fullPage: true });
+    await kpi(page, 'Executed Test Cases').click(); await expect(page.getByRole('complementary', { name: 'KPI evidence' })).toContainText('1 records');
+    await page.getByRole('button', { name: 'Close KPI evidence' }).click();
+    await kpi(page, 'Open Defects').click(); const detail = page.getByRole('complementary', { name: 'KPI evidence' });
+    await expect(detail).toContainText('1 records'); await expect(detail.getByRole('link', { name: /9001/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Close KPI evidence' }).click();
+    await kpi(page, 'Re-executed Test Cases').click(); await detail.getByRole('button', { name: '1001', exact: true }).click();
+    await expect(detail.getByRole('heading', { name: 'Case 1001 · baseline attempts' })).toBeVisible(); await expect(detail).toContainText('4 records');
+});
+
+test('incomplete null evidence stays incomplete while a genuine verified zero is displayed', async ({ page }) => {
+    const data = businessFixture(); data.activity.complete = false; data.activity.caseRetesting.reExecutedTestCases = null; data.activity.caseRetesting.state = 'Incomplete';
+    data.quality.relationshipsComplete = false; data.quality.totalLinkedDefects = null; data.quality.openLinkedDefects = null; data.quality.evidence.state = 'Incomplete';
+    await installBusiness(page, data);
+    await expect(kpi(page, 'Total Defects').locator('b')).toHaveText('Incomplete evidence');
+    await expect(kpi(page, 'Open Defects').locator('b')).toHaveText('Incomplete evidence');
+    await expect(kpi(page, 'Re-executed Test Cases').locator('b')).toHaveText('Incomplete evidence');
+    data.activity.complete = true; data.activity.caseRetesting = { reExecutedTestCases: 0, knownReExecutedTestCases: 0, missingCaseMappings: 0, state: 'Verified', cases: [] };
+    data.quality.relationshipsComplete = true; data.quality.totalLinkedDefects = 0; data.quality.openLinkedDefects = 0; data.quality.evidence.state = 'Verified'; data.quality.defects = [];
+    await page.getByRole('button', { name: 'Reload KPI evidence' }).click();
+    await expect(kpi(page, 'Total Defects').locator('b')).toHaveText('0');
+    await expect(kpi(page, 'Re-executed Test Cases').locator('b')).toHaveText('0');
+});
+
+for (const [status, label] of [[403, 'Permission denied'], [502, 'Unavailable']]) test(`evidence failure ${status} never becomes zero`, async ({ page }) => {
+    await installBusiness(page, businessFixture(), status);
+    await expect(kpi(page, 'Total Defects').locator('b')).toHaveText(label);
+    await expect(kpi(page, 'Re-executed Test Cases').locator('b')).toHaveText(label);
+    await expect(kpi(page, 'Release Readiness').locator('b')).toHaveText(label);
+    await kpi(page, 'Release Readiness').click();
+    await expect(page.getByRole('complementary', { name: 'KPI evidence' })).toContainText(label);
 });

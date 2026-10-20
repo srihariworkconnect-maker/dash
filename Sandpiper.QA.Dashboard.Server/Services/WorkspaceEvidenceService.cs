@@ -9,6 +9,7 @@ public sealed class WorkspaceEvidenceService(FrontierAnalyticsService analytics,
     public async Task<WorkspaceEvidence> LoadAsync(int planId, int? suiteId, ReportingWindow window,
         DateTimeOffset baselineFrom, string? tester, CancellationToken ct)
     {
+        if (baselineFrom > window.From || window.From >= window.To) throw new ArgumentException("Baseline must start no later than the reporting period.");
         var snapshot = await analytics.GetAnalyticsAsync(planId, ct, suiteId);
         var events = await history.ReadAsync(planId, ct);
         var activity = ExecutionCalculator.Calculate(events, snapshot.Points, window, baselineFrom, tester);

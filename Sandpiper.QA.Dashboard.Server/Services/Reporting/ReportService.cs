@@ -48,7 +48,7 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
         var current = string.IsNullOrEmpty(request.Tester) ? bundle.Snapshot : await analytics.GetAnalyticsAsync(request.PlanId, ct, request.SuiteId, request.Tester);
         var activity = bundle.Activity;
         var narrative = (request.Narrative ?? []).Where(p => p.Key.Length <= 60).ToDictionary(p => p.Key, p => p.Value.Length <= 4000 ? p.Value : p.Value[..4000]);
-        var report = new ReportSnapshot(Guid.NewGuid(), request.Kind, DateTimeOffset.UtcNow, "v2-2026-10-20.1",
+        var report = new ReportSnapshot(Guid.NewGuid(), request.Kind, DateTimeOffset.UtcNow, "v2-2026-10-20.2",
             "Draft — awaiting corporate reconciliation and historical cutoff evidence", "Local ADO collection", "", current, activity, narrative,
             ["Current point snapshot is at collection time, NOT a reconstructed historical cutoff snapshot.",
              "Frozen export can reproduce this draft; authoritative historical DSR requires approved preserved data.",
@@ -67,7 +67,7 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
             report.Activity.Events == null || report.Activity.Points == null || report.Activity.Productivity == null || report.Activity.Daily == null ||
             report.Narrative == null || report.Limitations == null || report.CurrentSnapshot.Points.Count > 50000 || report.Activity.Events.Count > 100000)
             throw new ArgumentException("Incomplete or oversized evidence structure.");
-        if (report.CalculationVersion != "v2-2026-10-20.1" || report.Checksum != ReportStore.Hash(report))
+        if (report.CalculationVersion is not ("v2-2026-10-20.1" or "v2-2026-10-20.2") || report.Checksum != ReportStore.Hash(report))
             throw new ArgumentException("Evidence checksum or schema version is invalid.");
         // Imports never establish trusted source/validation, even if the original claimed it.
         var copy = report with { Id = Guid.NewGuid(), Status = "Draft — imported evidence, untrusted source",
@@ -86,13 +86,21 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
                 ["Period from", r.Activity.Window.From.ToString("O")], ["Period to exclusive", r.Activity.Window.To.ToString("O")],
                 ["Baseline", r.Activity.Baseline.From.ToString("O")], ["Timezone", "Europe/London"], ["Rules", r.CalculationVersion], ["Checksum", r.Checksum],
                 ..r.Narrative.Select(p => new string?[] { p.Key, p.Value }), ..r.Limitations.Select(text => new string?[] { "Limitation", text })]),
-            new("Execution snapshot", ["Category", "Count"], [..m.Statuses.Select(p => new string?[] { p.Key, S(p.Value) }),
+            new("Business KPIs", ["Metric", "Value", "Unit and scope"], [
+                ["Total Test Cases", S(r.CurrentSnapshot.CaseMetrics?.TotalTestCases), "Distinct case IDs; missing mappings withhold totals"],
+                ["Executed Test Cases", S(r.CurrentSnapshot.CaseMetrics?.ExecutedTestCases), "Cases with at least one current executed point, including N/A"],
+                ["Execution Coverage %", S(r.CurrentSnapshot.CaseMetrics?.ExecutionCoverage), "Case-based; executed cases / total cases"],
+                ["Re-executed Test Cases", S(r.Activity.CaseRetesting?.ReExecutedTestCases), "Distinct cases with a repeated point in historical baseline"],
+                ["Total Defects", S(r.Quality?.TotalLinkedDefects), "Distinct scoped linked Bugs; not project-wide"],
+                ["Open Defects", S(r.Quality?.OpenLinkedDefects), "Inspected categories other than Completed/Removed"],
+                ["Completed Defects", S(r.Quality?.CompletedLinkedDefects), "Inspected Completed category"]]),
+            new("Execution snapshot", ["Point outcome category", "Point count"], [..m.Statuses.Select(p => new string?[] { p.Key, S(p.Value) }),
                 ["Total unique points", S(m.Total)], ["Primary pass %", S(m.PrimaryPassRate)], ["Secondary pass %", S(m.SecondaryPassRate)],
                 ["Progress %", S(m.ExecutionRate)], ["Re-executed baseline points", S(r.Activity.ReExecutedPoints)], ["Period repeat events", S(r.Activity.RepeatEvents)]]),
             new("Live TCM", ["Point ID", "Case ID", "Title", "Suite path", "Configuration", "Assigned", "Latest performer", "Latest date UTC", "Latest outcome", "Baseline executions", "Baseline repeats", "Plan ID", "Bug IDs", "Bug state", "Bug severity / priority", "Test priority", "Requirements", "Evidence"],
                 r.CurrentSnapshot.Points.Select(p => { var count = r.Activity.Points.SingleOrDefault(a => a.PointId == p.Id);
                     var testCase = r.Quality?.Cases.FirstOrDefault(c => c.CaseId == p.TestCaseId);
-                    var defects = r.Quality?.Defects.Where(b => b.RelatedResults.Any(e => e.PointId == p.Id && e.BugIds.Contains(b.BugId))).ToArray() ?? [];
+                    var defects = r.Quality?.Defects.Where(b => (p.TestCaseId != null && b.LinkedCaseIds?.Contains(p.TestCaseId.Value) == true) || b.RelatedResults.Any(e => e.PointId == p.Id && e.BugIds.Contains(b.BugId))).ToArray() ?? [];
                     return new string?[] {
                     S(p.Id), S(p.TestCaseId), p.Title, string.Join("; ", p.Memberships.Select(s => s.SuitePath)), p.ConfigurationName,
                     p.AssignedTester?.DisplayName, p.LatestExecutedBy?.DisplayName, p.LatestExecutionDate?.ToString("O"), p.Outcome,

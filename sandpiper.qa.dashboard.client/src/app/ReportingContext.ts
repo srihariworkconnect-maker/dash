@@ -32,3 +32,17 @@ export function suiteRows(snapshot: PlanAnalytics) {
         own: s.metrics.total, subtree: s.subtreeMetrics?.total, executed: s.subtreeMetrics?.executed,
         blocked: s.subtreeMetrics?.blocked, progress: s.subtreeMetrics?.executionRate }));
 }
+export function suiteOptions(suites: PlanAnalytics['suites']) {
+    const result: { value: string; label: string; depth: number }[] = [];
+    const ids = new Set(suites.map(s => s.suiteId));
+    const seen = new Set<number>();
+    const visit = (parent: number | null, path: string[], depth: number) => {
+        for (const suite of suites.filter(s => (s.parentSuiteId != null && ids.has(s.parentSuiteId) ? s.parentSuiteId : null) === parent)) {
+            if (seen.has(suite.suiteId)) continue;
+            seen.add(suite.suiteId); const names = [...path, suite.suiteName];
+            result.push({ value: String(suite.suiteId), label: `${names.join(' / ')} · ${suite.suiteId}`, depth });
+            visit(suite.suiteId, names, depth + 1);
+        }
+    };
+    visit(null, [], 0); return result;
+}

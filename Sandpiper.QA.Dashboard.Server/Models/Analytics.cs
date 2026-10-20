@@ -39,6 +39,8 @@ public record PlanAnalytics(int PlanId, int? SuiteId, QaMetrics Metrics,
     public double CacheAgeSeconds { get; init; }
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<AssignedWorkload>? Assignments { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public CaseMetrics? CaseMetrics { get; init; }
     public int Total => Metrics.Total;
     public int Passed => Metrics.Passed;
     public int Failed => Metrics.Failed;

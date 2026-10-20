@@ -1,4 +1,9 @@
 import type { AdoTestPlan, AdoTestSuite } from '../types/ado';
+export interface EvidenceAssessment { state: 'Verified' | 'Incomplete' | 'Unavailable' | 'PermissionDenied'; reasons: string[] }
+export class BackendRequestError extends Error {
+    status: number;
+    constructor(status: number, message: string) { super(message); this.name = 'BackendRequestError'; this.status = status; }
+}
 
 export interface QaMetrics {
     total: number;
@@ -20,6 +25,8 @@ export interface QaMetrics {
 }
 
 export interface PlanAnalytics {
+    caseMetrics?: { totalTestCases: number | null; executedTestCases: number | null; executionCoverage: number | null;
+        knownTestCases: number; knownExecutedTestCases: number; missingCaseMappings: number; unclassifiedCases?: number; state: string; testCaseIds: number[]; executedCaseIds: number[] };
     planId: number;
     suiteId: number | null;
     metrics: QaMetrics;
@@ -56,6 +63,7 @@ export interface ReportSnapshot {
     quality?: QualityEvidence;
 }
 export interface DefectEvidence {
+    linkedCaseIds?: number[];
     bugId: number; title: string | null; createdBy: Identity | null; createdAt: string | null;
     assignedTo: Identity | null; state: string | null; category: string | null; severity: string | null; priority: string | null;
     revisions: { revision: number; state: string | null; category: string | null; changedAt: string | null; changedBy: Identity | null }[];
@@ -63,6 +71,7 @@ export interface DefectEvidence {
     verificationOutcome: string | null; verificationEvidence: string[]; ageDays: number | null;
 }
 export interface QualityEvidence {
+    totalLinkedDefects?: number | null; completedLinkedDefects?: number | null; evidence?: EvidenceAssessment;
     available: boolean; schemaStatus: string; retrievedAt: string; inspectedFields: string[];
     stateCategories: Record<string, string>; relationshipsComplete: boolean;
     cases: { caseId: number; priority: string | null; requirementIds: number[]; evidenceLinks: string[] }[];
@@ -78,6 +87,9 @@ export interface ExecutionEvent {
     bugIds: number[]; sourceUrl: string | null; qualifies: boolean; isRepeat: boolean; transition: string | null;
 }
 export interface ExecutionIntelligence {
+    evidence?: EvidenceAssessment;
+    caseRetesting?: { reExecutedTestCases: number | null; knownReExecutedTestCases: number; missingCaseMappings: number; state: string;
+        cases: { caseId: number; pointIds: number[]; attempts: ExecutionEvent[] }[] };
     window: ReportingWindow; baseline: ReportingWindow; events: ExecutionEvent[];
     productivity: { testerKey: string; tester: string; day: string; assignedPoints: number; pendingAssigned: number;
         executionEvents: number; uniquePoints: number; passed: number; failed: number; blocked: number;
@@ -150,7 +162,7 @@ export function createBackendClient(baseUrl: string) {
                 const problem = await response.json() as { traceId?: string };
                 if (problem.traceId) trace = ` Reference: ${problem.traceId}`;
             } catch { /* Error pages may not be JSON. Never display upstream payloads. */ }
-            throw new Error(`Backend request failed (${response.status}). Check backend configuration, sign-in and permissions.${trace}`);
+            throw new BackendRequestError(response.status, `${response.status === 403 || response.status === 401 ? 'Permission denied' : 'Backend request failed'} (${response.status}). Check backend configuration, sign-in and permissions.${trace}`);
         }
         if (!response.headers.get('content-type')?.includes('application/json')) {
             throw new Error('Expected backend JSON. Check the API endpoint and development proxy.');
@@ -175,11 +187,15 @@ export function createBackendClient(baseUrl: string) {
             return get<{ status: string; differences: { category: string; source: number; reference: number; difference: number }[] }>(`/v2/reconcile/${planId}?${query}`, signal, counts);
         },
         createReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports', signal, body),
-        evidence: (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal) => {
+        evidence: async (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal) => {
             const query = new URLSearchParams({ from, to, baselineFrom });
             if (suiteId != null) query.set('suiteId', String(suiteId));
             if (tester) query.set('tester', tester);
-            return get<WorkspaceEvidence>(`/v2/evidence/${planId}?${query}`, signal);
+            const result = await get<WorkspaceEvidence>(`/v2/evidence/${planId}?${query}`, signal);
+            if (result.snapshot?.planId !== planId || (result.snapshot?.suiteId ?? null) !== suiteId || !result.snapshot?.complete || !result.snapshot?.connected ||
+                Date.parse(result.activity?.window?.from) !== Date.parse(from) || Date.parse(result.activity?.window?.to) !== Date.parse(to) ||
+                Date.parse(result.activity?.baseline?.from) !== Date.parse(baselineFrom)) throw new Error('Backend returned mismatched evidence scope or reporting boundaries.');
+            return result;
         },
         compare: (plans: number[], signal: AbortSignal) => get<{ scope: string; snapshots: PlanAnalytics[] }>(`/v2/compare?plans=${plans.join(',')}`, signal),
         importReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports/import', signal, body),

@@ -32,4 +32,14 @@ public class DefectVerificationTests
         Assert.StartsWith("Cannot assess", result.ReleaseReadiness);
         Assert.Null(result.Forecast);
     }
+
+    [Fact]
+    public void DisabledThresholdsAlwaysMeanNotAssessedAndCannotReusePriorAssessmentText()
+    {
+        var report = ExportTests.Report();
+        var quality = new QualityEvidence(true, "Inspected", DateTimeOffset.UtcNow, [], new Dictionary<string, string>(),
+            [], [], [], 0, 0, "Prior assessment text", [], null, []) { RelationshipsComplete = true };
+        var result = QualityCalculator.Assess(report.CurrentSnapshot, report.Activity, quality, new());
+        Assert.StartsWith("Not Assessed", result.ReleaseReadiness);
+    }
 }

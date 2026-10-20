@@ -24,7 +24,7 @@ public static class ScopeProjector
                 SubtreeMetrics = KpiCalculator.Calculate(points.Where(p => p.Memberships.Any(m => descendants.Contains(m.SuiteId)))) };
         }).ToArray();
         return full with { SuiteId = selected, Points = points, Suites = suites, SuiteCount = suites.Length,
-            Metrics = KpiCalculator.Calculate(points), Reconciliation = TestPointNormalizer.Reconcile(points),
+            Metrics = KpiCalculator.Calculate(points), CaseMetrics = CaseCalculator.Current(points), Reconciliation = TestPointNormalizer.Reconcile(points),
             Assignments = points.GroupBy(p => p.AssignedTester?.Key ?? "unattributed").Select(g => {
                 var metrics = KpiCalculator.Calculate(g);
                 return new AssignedWorkload(g.Key, g.First().AssignedTester?.DisplayName ?? "Unassigned", metrics.Total, metrics.Pending);

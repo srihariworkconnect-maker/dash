@@ -25,16 +25,16 @@ export default function QualityPanel({ api, context, onLoaded, compact = false }
         <button className="primary-button" disabled={!context.planId || !context.from || !context.to || !context.baselineFrom}
             onClick={() => { setData(null); setError(null); setTrigger(t => t + 1); }}>Inspect schema and load evidence</button></div>
         <p className="definition">Reads actual WIT fields, Bug states/categories and requirement categories before interpretation.
-            Defects are linked at run/result level. Set an explicit baseline to enable. No workflow state names or verification outcomes are fabricated.</p>
+            Defect scope uses inspected case relationships and result-level Bug links. Verification still requires result-level evidence. Set an explicit baseline to enable.</p>
         {trigger > 0 && !data && !error && <p role="status">Inspecting process metadata and reading result/work-item evidence…</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {q && <><p className={q.available ? 'trust-banner' : 'error'}>{q.schemaStatus}</p>
-            {!q.relationshipsComplete && <p className="error">Result bug links are incomplete or absent from some source records. Open-defect totals are withheld.</p>}
+            {!q.relationshipsComplete && <p className="error">History or case/result Bug relationships are incomplete. Scoped defect totals are withheld.</p>}
             {!compact && <><h3>Blocker aging · current blocked points</h3><DataTable name="blocker aging" rows={(q.blockers ?? []).map(b => ({ ...b }))}
                 columns={['pointId', 'observedSince', 'observedAgeDays', 'evidenceStatus'].map(key => ({ key, label: key }))} onSelect={setDetail} />
                 <h3>Observed regression transitions in reporting period</h3><DataTable name="quality regression evidence" rows={(data?.activity.events ?? []).filter(e => e.transition).map(e => ({ key: e.key, pointId: e.pointId, completedAt: e.completedAt, transition: e.transition }))}
                     columns={['key', 'pointId', 'completedAt', 'transition'].map(key => ({ key, label: key }))} onSelect={setDetail} /></>}
-            {q.available && !compact && <><div className="compact-kpis">{[['Open linked defects', q.openLinkedDefects ?? 'Unavailable'], ['Requirement-link gaps', q.requirementGaps ?? 'Unavailable'],
+            {q.available && !compact && <><div className="compact-kpis">{[['Total scoped defects', q.totalLinkedDefects ?? 'Incomplete / unavailable'], ['Open linked defects', q.openLinkedDefects ?? 'Unavailable'], ['Completed linked defects', q.completedLinkedDefects ?? 'Unavailable'], ['Requirement-link gaps', q.requirementGaps ?? 'Unavailable'],
                 ['Release readiness', q.releaseReadiness]].map(([label, value]) => <div className="compact-kpi" key={label}><small>{label}</small><b>{value}</b></div>)}</div>
                 <h3>Explainable risk summary</h3><ul>{q.riskReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
                 <h3>Defect state distribution</h3>{[...new Set(q.defects.map(b => b.state ?? 'Unknown'))].map(state => <button key={state} className="distribution-row"

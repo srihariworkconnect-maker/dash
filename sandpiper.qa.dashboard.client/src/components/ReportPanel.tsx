@@ -43,7 +43,11 @@ export default function ReportPanel({ api, context, kind }: { api: BackendClient
             <h3>Scope and collection metadata</h3><p>Plan {report.currentSnapshot.planId}; suite {report.currentSnapshot.suiteId ?? 'all'}.
                 Period [{report.activity.window.from}, {report.activity.window.to}). UK timezone: Europe/London.</p>
             <h3>Latest collected outcomes — not historical cutoff</h3><DataTable name={`${kind} snapshot`} rows={Object.entries(report.currentSnapshot.metrics.statuses).map(([status, count]) => ({ status, count }))}
-                columns={[{ key: 'status', label: 'Outcome' }, { key: 'count', label: 'Points' }]} />
+                columns={[{ key: 'status', label: 'Point outcome' }, { key: 'count', label: 'Test points' }]} />
+            <h3>Case-based coverage · latest collection</h3><p>Total Test Cases: {report.currentSnapshot.caseMetrics?.totalTestCases ?? 'Unavailable / incomplete'};
+                {' '}Executed Test Cases: {report.currentSnapshot.caseMetrics?.executedTestCases ?? 'Unavailable / incomplete'}. Execution Coverage (case-based):
+                {' '}{report.currentSnapshot.caseMetrics?.executionCoverage == null ? 'Unavailable' : `${report.currentSnapshot.caseMetrics.executionCoverage.toFixed(1)}%`}.</p>
+            <p>Re-executed Test Cases in baseline: {report.activity.caseRetesting?.reExecutedTestCases ?? 'Unavailable / incomplete'}. Total scoped linked defects: {report.quality?.totalLinkedDefects ?? 'Unavailable / incomplete'}.</p>
             <h3>Daily activity and progress trend</h3><DataTable name={`${kind} daily`} rows={report.activity.daily.map(r => ({ ...r }))}
                 columns={['day', 'executionEvents', 'uniquePoints', 'repeatEvents', 'passed', 'failed', 'blocked'].map(key => ({ key, label: key }))} />
             <h3>Tester productivity</h3><DataTable name={`${kind} testers`} rows={report.activity.productivity.map(r => ({ ...r }))}

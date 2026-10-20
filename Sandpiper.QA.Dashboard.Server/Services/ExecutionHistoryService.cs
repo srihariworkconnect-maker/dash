@@ -50,6 +50,7 @@ public sealed class ExecutionHistoryService(AzureDevOpsClient ado, FrontierAnaly
     public async Task<ExecutionIntelligence> ActivityAsync(int planId, int? suiteId, ReportingWindow window,
         DateTimeOffset baselineFrom, string? tester, CancellationToken ct)
     {
+        if (baselineFrom > window.From || window.From >= window.To) throw new ArgumentException("Baseline must start no later than the reporting period.");
         var snapshot = await analytics.GetAnalyticsAsync(planId, ct, suiteId);
         var events = await ReadAsync(planId, ct);
         return ExecutionCalculator.Calculate(events, snapshot.Points, window, baselineFrom, tester);

@@ -110,3 +110,27 @@ Test blocked/N/A/pending behavior, duplicate points, subtree rollups, pagination
 UK summer/winter cutoffs, boundary events, release limits, scope changes, retries,
 authorization, missing history and failed/partial collections. Validate local and
 installed-extension operation separately against the actual authorized environment.
+
+## Case-based business KPIs — 20 October 2026
+
+Total Test Cases counts distinct mapped ADO Test Case IDs in the selected current
+scope. Total Test Points remains distinct point IDs. Executed Test Cases has at
+least one current point in the existing executed-status set, including Blocked/N/A.
+Case Execution Coverage = Executed Test Cases / Total Test Cases. Point Execution
+Progress retains its applicable denominator excluding N/A. Empty denominators are
+unavailable. Missing case mappings or unclassified execution evidence withhold the
+affected complete totals; known mapped identities remain drillable.
+
+Passed/Failed/Blocked/Pending/N/A and pass rates remain point-based. No mixed-case
+configuration outcome policy is invented. Re-executed Test Cases counts distinct
+case IDs with at least one point having two qualifying baseline attempts. Multiple
+repeated configurations count the case once. Technical points/repeat events remain.
+
+Total/Open/Completed Defects use inspected selected-case relationships and recorded
+result Bug links, deduplicated by Bug ID. Complete totals require reconciled history,
+explicit relation arrays and supported metadata. Unknown categories withhold open/
+completed counts. No project-wide Bug inference or automatic verification is added.
+Current tester filtering uses assignment; history uses actual performer; defect
+totals cover selected plan/subtree across testers, while daily Bug activity uses actor.
+
+See kpi-ui-enhancement.md for exact definitions, zero-path findings and VDI checks.

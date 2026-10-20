@@ -12,6 +12,10 @@ constraints, [gate log](docs/v2-gates.md) and [changed files](docs/v2-changed-fi
 Current live totals and all generated reports remain provisional until corporate
 reconciliation; no demo fallback is used.
 
+The [KPI/UI enhancement report](docs/kpi-ui-enhancement.md) documents distinct case
+coverage vs technical point metrics, repeated-case evidence, scoped Total/Open/Completed
+Defects, searchable comboboxes, zero-state fixes and Visual Studio 2026 validation.
+
 ## Structure
 
 ```text

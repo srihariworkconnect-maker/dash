@@ -88,6 +88,7 @@ app.Use(async (context, next) =>
             BadHttpRequestException requestError => requestError.StatusCode,
             ArgumentException or FormatException or OverflowException => 400,
             CredentialUnavailableException or AuthenticationFailedException => 503,
+            HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => 403,
             HttpRequestException or InvalidDataException or System.Text.Json.JsonException => 502,
             OperationCanceledException => 504,
             _ => 500
@@ -97,6 +98,7 @@ app.Use(async (context, next) =>
         await context.Response.WriteAsJsonAsync(new { error = status == 400
             ? "Invalid reporting scope or configuration. Check plan, suite and offset-aware dates."
             : "Analytics unavailable. Check local Visual Studio ADO sign-in and server configuration.",
+            code = status == 403 ? "PermissionDenied" : status == 503 ? "Unavailable" : status == 400 ? "InvalidScope" : "RequestFailed",
             traceId = context.TraceIdentifier });
     }
     finally

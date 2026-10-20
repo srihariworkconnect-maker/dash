@@ -15,6 +15,17 @@ public sealed class AdoRequestGate(IOptions<AzureDevOpsOptions> options) : IDisp
 public sealed class AzureDevOpsClient(HttpClient http, TokenCredential credential,
     IOptions<AzureDevOpsOptions> options, AdoRequestGate gate)
 {
+    public int? WorkItemId(string? url)
+    {
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || uri.Scheme != "https" || !uri.IsDefaultPort || uri.UserInfo.Length > 0) return null;
+        var organization = options.Value.Organization;
+        var sameOrganization = uri.Host.Equals("dev.azure.com", StringComparison.OrdinalIgnoreCase)
+            ? Uri.UnescapeDataString(uri.Segments.ElementAtOrDefault(1)?.Trim('/') ?? "").Equals(organization, StringComparison.OrdinalIgnoreCase)
+            : uri.Host.Equals($"{organization}.visualstudio.com", StringComparison.OrdinalIgnoreCase);
+        if (!sameOrganization) return null;
+        var match = System.Text.RegularExpressions.Regex.Match(uri.AbsolutePath, @"/_apis/wit/workitems/(\d+)/?$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return match.Success && int.TryParse(match.Groups[1].Value, out var id) && id > 0 ? id : null;
+    }
     public async Task<string> ScopeKeyAsync(CancellationToken ct)
     {
         var token = await credential.GetTokenAsync(TokenContext, ct);

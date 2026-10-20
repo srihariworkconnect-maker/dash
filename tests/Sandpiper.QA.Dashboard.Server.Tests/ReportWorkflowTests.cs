@@ -69,6 +69,8 @@ public class ReportWorkflowTests
         response.EnsureSuccessStatusCode(); var report = (await response.Content.ReadFromJsonAsync<ReportSnapshot>())!;
         Assert.Equal(1, report.CurrentSnapshot.Metrics.Passed); Assert.Single(report.Activity.Events);
         Assert.Equal("actor", report.Activity.Productivity.Single().TesterKey); Assert.True(report.Quality!.Available);
+        Assert.Equal(0, report.Quality.TotalLinkedDefects); Assert.Equal(0, report.Quality.OpenLinkedDefects);
+        Assert.Equal(1, report.CurrentSnapshot.CaseMetrics!.TotalTestCases); Assert.Equal(1, report.CurrentSnapshot.CaseMetrics.ExecutedTestCases);
         Assert.Contains("Draft", report.Status); Assert.Equal(report.Checksum, ReportStore.Hash(report));
         var excel = await client.GetAsync($"/api/v2/reports/{report.Id}/xlsx"); excel.EnsureSuccessStatusCode();
         Assert.Equal(new byte[] { 80, 75 }, (await excel.Content.ReadAsByteArrayAsync())[..2]);

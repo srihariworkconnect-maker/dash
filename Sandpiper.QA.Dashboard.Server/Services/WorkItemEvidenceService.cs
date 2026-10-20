@@ -29,7 +29,9 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
             if (bugType.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("Bug type not found in inspected process.");
             var typeName = AzureDevOpsClient.Text(bugType, "name")!;
             var states = await ado.ListAsync($"wit/workitemtypes/{Uri.EscapeDataString(typeName)}/states", ct);
-            var categories = states.ToDictionary(s => AzureDevOpsClient.Text(s, "name") ?? "", s => AzureDevOpsClient.Text(s, "category") ?? "Unknown");
+            string Category(string? raw) => new[] { "Proposed", "InProgress", "Resolved", "Completed", "Removed" }
+                .FirstOrDefault(c => c.Equals(raw, StringComparison.OrdinalIgnoreCase)) ?? "Unknown";
+            var categories = states.ToDictionary(s => AzureDevOpsClient.Text(s, "name") ?? "", s => Category(AzureDevOpsClient.Text(s, "category")));
             var workCategories = await ado.ListAsync("wit/workitemtypecategories", ct);
             var requirementTypes = workCategories.Where(c => AzureDevOpsClient.Text(c, "referenceName") == "Microsoft.RequirementCategory")
                 .Where(c => c.TryGetProperty("workItemTypes", out var array) && array.ValueKind == JsonValueKind.Array)
@@ -37,7 +39,9 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
             if (requirementTypes.Count == 0) throw new InvalidDataException("Requirement category is unavailable in inspected process.");
             var pointIds = snapshot.Points.Select(p => p.Id).ToHashSet();
             var scopedEvents = events.Where(e => e.PointId != null && pointIds.Contains(e.PointId.Value)).ToArray();
-            var relationshipsComplete = scopedEvents.All(e => e.BugLinksAvailable) && !events.Any(e => e.PointId == null && e.BugIds.Count > 0);
+            var historyReview = HistoryEvidenceEvaluator.Assess(snapshot.Points, events);
+            var relationshipsComplete = historyReview.State == "Verified" && scopedEvents.All(e => e.BugLinksAvailable) &&
+                !events.Any(e => e.PointId == null) && snapshot.Points.All(p => p.TestCaseId > 0);
             var bugIds = scopedEvents.SelectMany(e => e.BugIds).Distinct().ToArray();
             var caseIds = snapshot.Points.Where(p => p.TestCaseId != null).Select(p => p.TestCaseId!.Value).Distinct().ToArray();
             async Task<Dictionary<int, JsonElement>> Items(IEnumerable<int> ids)
@@ -52,9 +56,19 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
                 return result;
             }
             var items = await Items(caseIds.Concat(bugIds));
+            var supportedRelations = relationTypes.Select(r => AzureDevOpsClient.Text(r, "referenceName")).ToHashSet();
+            bool ScopeRelation(string? name) => (name is "Microsoft.VSTS.Common.TestedBy-Reverse" or "System.LinkTypes.Related") && supportedRelations.Contains(name);
+            relationshipsComplete &= caseIds.All(id => Relations(items[id]).All(r =>
+                r.Relation is not ("Microsoft.VSTS.Common.TestedBy-Reverse" or "System.LinkTypes.Related") || supportedRelations.Contains(r.Relation)));
             var relatedIds = items.Where(pair => caseIds.Contains(pair.Key)).SelectMany(pair => Relations(pair.Value))
-                .Where(r => r.Relation == "Microsoft.VSTS.Common.TestedBy-Reverse" && r.Id != null).Select(r => r.Id!.Value).Distinct();
+                .Where(r => ScopeRelation(r.Relation) && r.Id != null).Select(r => r.Id!.Value).Distinct();
             var requirements = await Items(relatedIds);
+            var caseBugs = caseIds.ToDictionary(id => id, id => Relations(items[id]).Where(r => ScopeRelation(r.Relation) && r.Id != null &&
+                requirements.TryGetValue(r.Id.Value, out var target) && Field(target, "System.WorkItemType") == typeName).Select(r => r.Id!.Value).Distinct().ToArray());
+            bugIds = bugIds.Concat(caseBugs.Values.SelectMany(ids => ids)).Distinct().ToArray();
+            foreach (var pair in requirements) items.TryAdd(pair.Key, pair.Value);
+            relationshipsComplete &= caseIds.All(id => items[id].TryGetProperty("relations", out var relations) && relations.ValueKind == JsonValueKind.Array);
+            relationshipsComplete &= caseIds.All(id => Relations(items[id]).Where(r => ScopeRelation(r.Relation)).All(r => r.Id > 0));
             var cases = caseIds.Select(id => new CaseEnrichment(id, Field(items[id], "Microsoft.VSTS.Common.Priority"),
                 Relations(items[id]).Where(r => r.Relation == "Microsoft.VSTS.Common.TestedBy-Reverse" && r.Id != null &&
                     requirements.TryGetValue(r.Id.Value, out var target) && requirementTypes.Contains(Field(target, "System.WorkItemType"))).Select(r => r.Id!.Value).Distinct().ToArray(),
@@ -72,7 +86,7 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
                     names.Contains("Microsoft.VSTS.Common.Severity") ? Field(items[id], "Microsoft.VSTS.Common.Severity") : null,
                     names.Contains("Microsoft.VSTS.Common.Priority") ? Field(items[id], "Microsoft.VSTS.Common.Priority") : null,
                     revisions, scopedEvents.Where(e => e.BugIds.Contains(id) || e.PointId != null && scopedEvents.Any(f => f.PointId == e.PointId && f.BugIds.Contains(id))).ToArray(),
-                    "Unknown", null, null, null, [], null);
+                    "Unknown", null, null, null, [], null) { LinkedCaseIds = caseBugs.Where(p => p.Value.Contains(id)).Select(p => p.Key).ToArray() };
                 defects.Add(DefectVerificationEvaluator.Evaluate(bug, DateTimeOffset.UtcNow));
             }
             var activity = BugActivityCalculator.Calculate(defects, window, tester);
@@ -81,33 +95,39 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
             if (snapshot.Metrics.Unknown > 0) risk.Add($"{snapshot.Metrics.Unknown} current points have unclassified outcomes.");
             if (snapshot.Metrics.Blocked > 0) risk.Add($"{snapshot.Metrics.Blocked} current points are blocked; blocker start times require historical evidence.");
             if (defects.Any(b => b.Category is not ("Completed" or "Removed"))) risk.Add("Open result-linked defects remain; severity/priority is shown without assuming a custom threshold.");
-            risk.Add("Readiness rules are not configured/approved; human sign-off is required.");
+            risk.Add("Readiness indicators require explicitly approved configuration; human sign-off is required.");
             return new(true, "Live schema inspected; corporate relationship/chronology validation still required", DateTimeOffset.UtcNow,
                 names.Order().ToArray(), categories, cases, defects, activity,
                 unknownStates || !relationshipsComplete ? null : defects.Count(b => b.Category is not ("Completed" or "Removed")),
                 !requirementRelationAvailable || snapshot.Points.Any(p => p.TestCaseId == null) ? null : cases.Count(c => c.RequirementIds.Count == 0),
-                "Not assessed — thresholds require approved configuration", risk, null,
-                ["Defect scope is result-linked bugs for selected current test points, not all project defects.",
+                "Not Assessed — thresholds require approved configuration", risk, null,
+                ["Defect scope is bugs explicitly linked to selected cases or their recorded results, not all project defects.",
                  "Later pass is only a candidate unless explicit bug link, resolution and same-performer completion chronology agree.",
                  "Bug state categories are inspected, not guessed from English labels. Corporate evidence conventions remain unvalidated."])
-                { RelationshipsComplete = relationshipsComplete };
+                { RelationshipsComplete = relationshipsComplete,
+                  TotalLinkedDefects = relationshipsComplete ? defects.Select(b => b.BugId).Distinct().Count() : null,
+                  CompletedLinkedDefects = relationshipsComplete && !unknownStates ? defects.Count(b => b.Category == "Completed") : null,
+                  Evidence = new(relationshipsComplete ? "Verified" : "Incomplete", relationshipsComplete ? [] :
+                    [..historyReview.Reasons, "Check result associatedBugs collections, point/case identities and case relation collections; missing evidence is not an empty list."]) };
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidDataException)
         {
             return new(false, "Work-item schema/relationships unavailable or inconsistent; check WIT read permissions and process metadata.",
                 DateTimeOffset.UtcNow, [], new Dictionary<string, string>(), [], [], [], null, null,
-                "Not assessed", ["Defect evidence unavailable; no zero or readiness inference."], null, ["Awaiting corporate schema/relationship validation."]);
+                "Not Assessed", ["Defect evidence unavailable; no zero or readiness inference."], null, ["Awaiting corporate schema/relationship validation."])
+                { Evidence = new(ex is HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.Unauthorized }
+                    ? "PermissionDenied" : "Unavailable", ["WIT schema or relationship retrieval failed; check permissions and process metadata."]) };
         }
     }
 
-    private static IEnumerable<(string? Relation, int? Id, string? Url)> Relations(JsonElement item)
+    private IEnumerable<(string? Relation, int? Id, string? Url)> Relations(JsonElement item)
     {
         if (!item.TryGetProperty("relations", out var relations) || relations.ValueKind != JsonValueKind.Array) yield break;
         foreach (var relation in relations.EnumerateArray())
         {
             var url = AzureDevOpsClient.Text(relation, "url");
-            var valid = Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == "https";
-            int? id = valid && int.TryParse(uri!.Segments.Last().Trim('/'), out var n) && n > 0 ? n : null;
+            var valid = Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme == "https" && uri.UserInfo.Length == 0;
+            int? id = valid ? ado.WorkItemId(url) : null;
             yield return (AzureDevOpsClient.Text(relation, "rel"), id, valid ? url : null);
         }
     }

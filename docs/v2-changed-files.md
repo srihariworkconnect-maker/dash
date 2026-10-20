@@ -130,3 +130,47 @@ Paths are repository-relative. Baseline: 7ccf470. Gate F includes integration re
 - `VALIDATION.md`
 - `docs/v2-changed-files.md`
 - `tests/Sandpiper.QA.Dashboard.Server.Tests/ReportWorkflowTests.cs`
+
+## Complete KPI/UI enhancement — comparison baseline 43139e8
+
+See kpi-ui-enhancement.md for file purposes, definitions, zero-path evidence and VDI instructions.
+
+- `AGENTS.md`
+- `docs/kpi-ui-enhancement.md`
+- `docs/reporting-rules.md`
+- `README.md`
+- `sandpiper.qa.dashboard.client/e2e/command-center.spec.cjs`
+- `sandpiper.qa.dashboard.client/src/app/CommandCenter.tsx`
+- `sandpiper.qa.dashboard.client/src/app/ReportingContext.ts`
+- `sandpiper.qa.dashboard.client/src/components/ActivityPanel.tsx`
+- `sandpiper.qa.dashboard.client/src/components/OverviewKpis.tsx`
+- `sandpiper.qa.dashboard.client/src/components/QualityPanel.tsx`
+- `sandpiper.qa.dashboard.client/src/components/ReportPanel.tsx`
+- `sandpiper.qa.dashboard.client/src/components/SearchableCombobox.tsx`
+- `sandpiper.qa.dashboard.client/src/services/adoApi.ts`
+- `sandpiper.qa.dashboard.client/src/v2.css`
+- `sandpiper.qa.dashboard.client/tests/backend-client.test.cjs`
+- `sandpiper.qa.dashboard.client/tests/reporting-context.test.cjs`
+- `Sandpiper.QA.Dashboard.Server/Models/Analytics.cs`
+- `Sandpiper.QA.Dashboard.Server/Models/BusinessMetrics.cs`
+- `Sandpiper.QA.Dashboard.Server/Models/ExecutionIntelligence.cs`
+- `Sandpiper.QA.Dashboard.Server/Models/QualityEvidence.cs`
+- `Sandpiper.QA.Dashboard.Server/Program.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/Analytics/CaseCalculator.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/Analytics/ExecutionCalculator.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/Analytics/HistoryEvidenceEvaluator.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/Analytics/QualityCalculator.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/Analytics/ScopeProjector.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/AzureDevOpsClient.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/ExecutionHistoryService.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/Reporting/ReportService.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/WorkItemEvidenceService.cs`
+- `Sandpiper.QA.Dashboard.Server/Services/WorkspaceEvidenceService.cs`
+- `tests/Sandpiper.QA.Dashboard.Server.Tests/AdoIntegrationTests.cs`
+- `tests/Sandpiper.QA.Dashboard.Server.Tests/ApiContractTests.cs`
+- `tests/Sandpiper.QA.Dashboard.Server.Tests/BusinessMetricsTests.cs`
+- `tests/Sandpiper.QA.Dashboard.Server.Tests/DefectVerificationTests.cs`
+- `tests/Sandpiper.QA.Dashboard.Server.Tests/ReportWorkflowTests.cs`
+- `tests/Sandpiper.QA.Dashboard.Server.Tests/WorkItemEvidenceTests.cs`
+- `VALIDATION.md`
+- `docs/v2-changed-files.md`

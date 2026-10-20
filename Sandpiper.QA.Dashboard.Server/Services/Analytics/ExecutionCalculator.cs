@@ -58,7 +58,8 @@ public static class ExecutionCalculator
         var pointCounts = baseline.Where(e => e.Qualifies && e.PointId != null && Matches(e))
             .Select(e => annotated[e.Key]).GroupBy(e => e.PointId!.Value)
             .Select(g => new PointActivity(g.Key, g.Count(), g.Count(e => e.IsRepeat))).ToList();
-        var complete = missingDates == 0 && missingLinks == 0;
+        var review = HistoryEvidenceEvaluator.Assess(points, all, new(baselineFrom, window.To));
+        var complete = missingDates == 0 && missingLinks == 0 && review.State == "Verified";
         return new(window, new(baselineFrom, window.To), events, productivity, daily, pointCounts,
             complete ? pointCounts.Count(p => p.ExecutionCount > 1) : null,
             qualifying.Count(e => e.IsRepeat), qualifying.Select(e => e.PointId).Distinct().Count(),
@@ -66,6 +67,10 @@ public static class ExecutionCalculator
             ["Awaiting VDI validation; retained result identities are not an audit of overwritten attempts.",
              "Current point membership is used. Missing identity is unattributed; missing history is not zero.",
              "Assigned/pending counts are current state, not historical daily assignment.",
-             "Equal-time records count as distinct attempts but do not establish transition chronology."]);
+             "Equal-time records count as distinct attempts but do not establish transition chronology.", ..review.Reasons])
+            { Evidence = new(complete ? "Verified" : "Incomplete", [..review.Reasons,
+                ..(missingDates > 0 ? new[] { "Qualifying results are missing execution timestamps." } : []),
+                ..(missingLinks > 0 ? new[] { "Qualifying results are missing test-point links." } : [])]),
+              CaseRetesting = CaseCalculator.Retesting(points, pointCounts, baseline.Where(Matches).ToArray(), complete) };
     }
 }

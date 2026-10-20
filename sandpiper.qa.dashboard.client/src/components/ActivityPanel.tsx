@@ -46,7 +46,7 @@ export default function ActivityPanel({ api, context, mode, snapshot, assignment
             columns={[{ key: 'tester', label: 'Assigned tester' }, { key: 'assignedNow', label: 'Assigned now' }, { key: 'pendingNow', label: 'Pending assigned now' }]} />
         {request > 0 && !data && !error && <p role="status">Reading paginated result records…</p>}
         {error && <p className="error" role="alert">{error}</p>}
-        {data && <><div className="compact-kpis">{[['Re-executed points in baseline', data.reExecutedPoints ?? 'Incomplete'],
+        {data && <><div className="compact-kpis">{[['Re-executed test cases in baseline', data.caseRetesting?.reExecutedTestCases ?? 'Incomplete / unavailable'], ['Re-executed points in baseline', data.reExecutedPoints ?? 'Incomplete'],
             ['Repeat events in period', data.repeatEvents], ['Unique points in period', data.uniquePoints],
             ['Missing point links', data.missingPointLinks], ['Missing dates', data.missingDates]].map(([label, value]) =>
                 <div className="compact-kpi" key={label}><small>{label}</small><b>{value}</b></div>)}</div>
