@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 
 export interface Column { key: string; label: string; render?: (row: DataRow) => ReactNode }
 export type DataRow = Record<string, unknown>;
-export const cellText = (value: unknown): string => value == null ? 'Unavailable' : String(value);
+const cellText = (value: unknown): string => value == null ? 'Unavailable' : String(value);
 
 export default function DataTable({ rows, columns, name, onSelect }: {
     rows: DataRow[]; columns: Column[]; name: string; onSelect?: (row: DataRow) => void;
