@@ -1,12 +1,19 @@
 using System.Text.Json;
 using Sandpiper.QA.Dashboard.Server.Models;
 using Sandpiper.QA.Dashboard.Server.Services.Analytics;
+using Sandpiper.QA.Dashboard.Server.Services.Infrastructure;
 
 namespace Sandpiper.QA.Dashboard.Server.Services;
 
-public sealed class ExecutionHistoryService(AzureDevOpsClient ado, FrontierAnalyticsService analytics)
+public sealed class ExecutionHistoryService(AzureDevOpsClient ado, FrontierAnalyticsService analytics, SnapshotCache cache)
 {
     public async Task<IReadOnlyList<ExecutionEvent>> ReadAsync(int planId, CancellationToken ct)
+    {
+        var key = await ado.ScopeKeyAsync(ct);
+        return await cache.GetAsync($"{key}:events:{planId}", TimeSpan.FromSeconds(30), token => CollectAsync(planId, key, token), ct);
+    }
+
+    private async Task<IReadOnlyList<ExecutionEvent>> CollectAsync(int planId, string key, CancellationToken ct)
     {
         var runs = await ado.HistoryAsync("test/runs", new() { ["planId"] = planId.ToString() }, ct);
         var events = new System.Collections.Concurrent.ConcurrentBag<ExecutionEvent>();
@@ -15,7 +22,11 @@ public sealed class ExecutionHistoryService(AzureDevOpsClient ado, FrontierAnaly
             if (run.TryGetProperty("plan", out var plan) && AzureDevOpsClient.Number(plan, "id") != planId)
                 throw new InvalidDataException("Mismatched run plan.");
             var runId = AzureDevOpsClient.Number(run, "id");
-            var results = await ado.HistoryAsync($"test/Runs/{runId}/results", new() { ["detailsToInclude"] = "WorkItems" }, token);
+            var revision = AzureDevOpsClient.Number(run, "revision");
+            var closed = AzureDevOpsClient.Text(run, "state")?.Equals("Completed", StringComparison.OrdinalIgnoreCase) == true;
+            var resultKey = $"{key}:run:{runId}:{revision}:{AzureDevOpsClient.Text(run, "lastUpdatedDate")}";
+            var results = await cache.GetAsync(resultKey, closed && revision > 0 ? TimeSpan.FromSeconds(60) : TimeSpan.Zero,
+                c => ado.HistoryAsync($"test/Runs/{runId}/results", new() { ["detailsToInclude"] = "WorkItems" }, c), token);
             foreach (var result in results)
             {
                 var id = AzureDevOpsClient.Number(result, "id");

@@ -148,6 +148,11 @@ original Frontier routes. Both initial plans and additional plans are supported.
 
 History requires a selected offset-aware [from, to) window and current plan/subtree
 membership. It is retained result history, not a complete retry/deleted-point audit.
-Historical storage, DSR/TCR document generation, productivity, defect/risk views,
-leadership views and report automation remain unimplemented. The installed extension
-needs an approved authenticated API; the current backend fails closed in production.
+V2 modules, retained execution/productivity analysis, result-linked quality evidence,
+DSR/TCR draft generation, portable frozen evidence, exports, local caching and bounded
+request audit metadata are implemented on the feature branch. See docs/v2-handoff.md
+and docs/v2-gates.md for exact coverage and limitations. Authoritative historical cutoff
+storage and scheduled distribution remain unavailable; no approved SQL infrastructure
+or corporate authentication is assumed. The installed extension needs an approved
+authenticated API; the current backend fails closed in production. All corporate
+reconciliation and extension connectivity remain awaiting VDI validation.

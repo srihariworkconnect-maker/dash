@@ -32,4 +32,16 @@ public class ExecutionIntelligenceTests
         Assert.Null(result.ReExecutedPoints);
         Assert.Equal(1, result.MissingPointLinks);
     }
+
+    [Fact]
+    public void ExplicitUnattributedFilterIncludesUnknownPerformerWithoutUsingAssignee()
+    {
+        using var json = JsonDocument.Parse("""{"id":1,"results":{"outcome":"passed"}}""");
+        var point = TestPointNormalizer.Normalize(json.RootElement, 1, 1, "Suite");
+        var start = DateTimeOffset.Parse("2026-10-19T17:00:00Z");
+        var record = new ExecutionEvent("1:1", 1, 1, 1, "passed", "Completed", start, null, [], null, true);
+        var result = ExecutionCalculator.Calculate([record], [point], new(start, start.AddDays(1)), start, "unattributed");
+        Assert.Single(result.Events); Assert.Equal("unattributed", result.Productivity.Single().TesterKey);
+        Assert.Equal(1, result.Productivity.Single().AssignedPoints);
+    }
 }

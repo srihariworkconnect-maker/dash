@@ -59,7 +59,7 @@ export default function ReportPanel({ api, context, kind }: { api: BackendClient
                 <DataTable name={`${kind} defects`} rows={report.quality.defects.map(b => ({ ...b, key: b.bugId, evidence: b.verificationEvidence.join('; ') }))}
                     columns={['bugId', 'title', 'state', 'severity', 'priority', 'verificationStatus', 'retestedAt', 'verificationOutcome', 'evidence'].map(key => ({ key, label: key }))} />
                 <DataTable name={`${kind} bug activity`} rows={report.quality.bugActivity.map(b => ({ ...b }))}
-                    columns={['tester', 'raised', 'resolved', 'reopened', 'verifiedWithEvidence', 'verificationAttempts'].map(key => ({ key, label: key }))} />
+                    columns={['tester', 'day', 'raised', 'resolved', 'reopened', 'verifiedWithEvidence', 'verificationAttempts'].map(key => ({ key, label: key }))} />
             </>}
             <h3>Exclusions and recommendation</h3><p>{report.narrative.Exclusions || 'No exclusions supplied.'}</p><p>{report.narrative['Sign-off recommendation']}</p>
             <details><summary>Data limitations</summary><ul>{report.limitations.map(text => <li key={text}>{text}</li>)}</ul></details>

@@ -62,6 +62,11 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
 
     public ReportSnapshot Import(ReportSnapshot report)
     {
+        if (report.Kind is not ("DSR" or "TCR") || report.CurrentSnapshot?.Metrics == null || report.CurrentSnapshot.Points == null ||
+            report.CurrentSnapshot.Suites == null || report.Activity?.Window == null || report.Activity.Baseline == null ||
+            report.Activity.Events == null || report.Activity.Points == null || report.Activity.Productivity == null || report.Activity.Daily == null ||
+            report.Narrative == null || report.Limitations == null || report.CurrentSnapshot.Points.Count > 50000 || report.Activity.Events.Count > 100000)
+            throw new ArgumentException("Incomplete or oversized evidence structure.");
         if (report.CalculationVersion != "v2-2026-10-20.1" || report.Checksum != ReportStore.Hash(report))
             throw new ArgumentException("Evidence checksum or schema version is invalid.");
         // Imports never establish trusted source/validation, even if the original claimed it.
@@ -84,11 +89,17 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
             new("Execution snapshot", ["Category", "Count"], [..m.Statuses.Select(p => new string?[] { p.Key, S(p.Value) }),
                 ["Total unique points", S(m.Total)], ["Primary pass %", S(m.PrimaryPassRate)], ["Secondary pass %", S(m.SecondaryPassRate)],
                 ["Progress %", S(m.ExecutionRate)], ["Re-executed baseline points", S(r.Activity.ReExecutedPoints)], ["Period repeat events", S(r.Activity.RepeatEvents)]]),
-            new("Live TCM", ["Point ID", "Case ID", "Title", "Suite path", "Configuration", "Assigned", "Latest performer", "Latest date UTC", "Latest outcome", "Baseline executions", "Baseline repeats"],
-                r.CurrentSnapshot.Points.Select(p => { var count = r.Activity.Points.SingleOrDefault(a => a.PointId == p.Id); return new string?[] {
+            new("Live TCM", ["Point ID", "Case ID", "Title", "Suite path", "Configuration", "Assigned", "Latest performer", "Latest date UTC", "Latest outcome", "Baseline executions", "Baseline repeats", "Plan ID", "Bug IDs", "Bug state", "Bug severity / priority", "Test priority", "Requirements", "Evidence"],
+                r.CurrentSnapshot.Points.Select(p => { var count = r.Activity.Points.SingleOrDefault(a => a.PointId == p.Id);
+                    var testCase = r.Quality?.Cases.FirstOrDefault(c => c.CaseId == p.TestCaseId);
+                    var defects = r.Quality?.Defects.Where(b => b.RelatedResults.Any(e => e.PointId == p.Id && e.BugIds.Contains(b.BugId))).ToArray() ?? [];
+                    return new string?[] {
                     S(p.Id), S(p.TestCaseId), p.Title, string.Join("; ", p.Memberships.Select(s => s.SuitePath)), p.ConfigurationName,
                     p.AssignedTester?.DisplayName, p.LatestExecutedBy?.DisplayName, p.LatestExecutionDate?.ToString("O"), p.Outcome,
-                    r.Activity.Complete ? S(count?.ExecutionCount ?? 0) : "Incomplete", r.Activity.Complete ? S(count?.RepeatCount ?? 0) : "Incomplete" }; }).ToList()),
+                    r.Activity.Complete ? S(count?.ExecutionCount ?? 0) : "Incomplete", r.Activity.Complete ? S(count?.RepeatCount ?? 0) : "Incomplete",
+                    S(p.PlanId), r.Quality?.RelationshipsComplete == true ? string.Join(", ", defects.Select(b => b.BugId)) : "Unavailable",
+                    string.Join("; ", defects.Select(b => $"{b.BugId}: {b.State}")), string.Join("; ", defects.Select(b => $"{b.BugId}: {b.Severity} / {b.Priority}")),
+                    testCase?.Priority, testCase == null ? null : string.Join(", ", testCase.RequirementIds), testCase == null ? null : string.Join("; ", testCase.EvidenceLinks) }; }).ToList()),
             new("Period activity", ["Run:Result", "Point", "Outcome", "Completed UTC", "Actual performer", "Repeat", "Transition", "Result bug IDs"],
                 r.Activity.Events.Select(e => new string?[] { e.Key, S(e.PointId), e.Outcome, e.CompletedAt?.ToString("O"), e.Performer?.DisplayName ?? "Unattributed", S(e.IsRepeat), e.Transition, string.Join(",", e.BugIds) }).ToList()),
             new("Productivity", ["Actual performer", "UK day", "Assigned now", "Pending assigned now", "Events", "Unique points", "Passed", "Failed", "Blocked", "Repeat events", "Repeated points"],
@@ -104,8 +115,10 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
                 r.Quality?.Defects.Select(b => new string?[] { S(b.BugId), b.Title, b.CreatedBy?.DisplayName, b.CreatedAt?.ToString("O"), b.AssignedTo?.DisplayName,
                     b.State, b.Severity, b.Priority, b.VerificationStatus, b.RetestedBy?.DisplayName, b.RetestedAt?.ToString("O"), b.VerificationOutcome,
                     string.Join("; ", b.VerificationEvidence) }).ToList() ?? []),
-            new("Bug activity", ["Created By / actor", "Raised", "Resolved", "Reopened", "Verified with evidence", "Verification attempts"],
-                r.Quality?.BugActivity.Select(b => new string?[] { b.Tester, S(b.Raised), S(b.Resolved), S(b.Reopened), S(b.VerifiedWithEvidence), S(b.VerificationAttempts) }).ToList() ?? [])
+            new("Bug activity", ["Created By / actor", "UK day", "Raised", "Resolved", "Reopened", "Verified with evidence", "Verification attempts"],
+                r.Quality?.BugActivity.Select(b => new string?[] { b.Tester, b.Day, S(b.Raised), S(b.Resolved), S(b.Reopened), S(b.VerifiedWithEvidence), S(b.VerificationAttempts) }).ToList() ?? []),
+            new("Blocker aging", ["Point ID", "Observed since UTC", "Observed age days", "Evidence status"],
+                r.Quality?.Blockers?.Select(b => new string?[] { S(b.PointId), b.ObservedSince?.ToString("O"), S(b.ObservedAgeDays), b.EvidenceStatus }).ToList() ?? [])
         ];
     }
 }

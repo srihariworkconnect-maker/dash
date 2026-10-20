@@ -15,6 +15,12 @@ public sealed class AdoRequestGate(IOptions<AzureDevOpsOptions> options) : IDisp
 public sealed class AzureDevOpsClient(HttpClient http, TokenCredential credential,
     IOptions<AzureDevOpsOptions> options, AdoRequestGate gate)
 {
+    public async Task<string> ScopeKeyAsync(CancellationToken ct)
+    {
+        var token = await credential.GetTokenAsync(TokenContext, ct);
+        // Cache isolation without logging, returning, decoding or persisting an access token.
+        return options.Value.BaseUrl + ":" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(token.Token)));
+    }
     private static readonly TokenRequestContext TokenContext =
         new(["499b84ac-1321-427f-aa17-267ca6975798/.default"]);
 

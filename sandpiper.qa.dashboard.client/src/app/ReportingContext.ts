@@ -8,6 +8,16 @@ export const initialContext: ReportingContext = { planId: null, suiteId: null, t
 export function changePlan(context: ReportingContext, planId: number): ReportingContext {
     return { ...context, planId, suiteId: null, tester: '' };
 }
+// Drill-through record selection only. All KPI totals/rates are calculated by the backend.
+export function matchesOutcome(outcome: string, group: string): boolean {
+    const status = outcome.trim().toLowerCase();
+    if (!group) return true;
+    if (group === 'pending') return ['none', 'active', 'notexecuted'].includes(status);
+    if (group === 'executed') return ['passed', 'failed', 'blocked', 'notapplicable', 'inconclusive', 'timeout', 'aborted', 'error'].includes(status);
+    if (group === 'applicable') return status !== 'notapplicable';
+    if (group === 'secondary') return ['passed', 'failed', 'blocked'].includes(status);
+    return status === group;
+}
 export function pointRows(points: NormalizedPoint[], planName: string) {
     return points.map(p => ({ key: p.id, pointId: p.id, plan: planName,
         suitePath: p.memberships.map(m => m.suitePath).join('; '), caseId: p.testCaseId,

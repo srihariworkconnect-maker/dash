@@ -5,14 +5,17 @@ using Azure.Identity;
 using Sandpiper.QA.Dashboard.Server.Services;
 using Sandpiper.QA.Dashboard.Server.Services.Analytics;
 using Sandpiper.QA.Dashboard.Server.Services.Reporting;
+using Sandpiper.QA.Dashboard.Server.Services.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.WebHost.ConfigureKestrel(options => options.Limits.MaxRequestBodySize = 20_000_000);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true).AddEnvironmentVariables();
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
 builder.Services.AddOptions<AzureDevOpsOptions>()
     .Bind(builder.Configuration.GetSection("AzureDevOps"))
     .Validate(options => options.MaxConcurrency is >= 1 and <= 8, "Concurrency must be between 1 and 8.")
+    .Validate(options => options.CacheSeconds is >= 0 and <= 60, "Cache TTL must be between zero and 60 seconds.")
     .Validate(options => TimeOnly.TryParseExact(options.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture,
         DateTimeStyles.None, out _), "DSR cutoff must use HH:mm.")
     .ValidateOnStart();
@@ -27,8 +30,14 @@ builder.Services.AddHttpClient<AzureDevOpsService>();
 builder.Services.AddTransient<FrontierAnalyticsService>();
 builder.Services.AddTransient<ExecutionHistoryService>();
 builder.Services.AddSingleton<ReportStore>();
+builder.Services.AddSingleton<SnapshotCache>();
+builder.Services.AddSingleton<AuditTrail>();
 builder.Services.AddTransient<ReportService>();
-builder.Services.Configure<QualityRules>(builder.Configuration.GetSection("QualityRules"));
+builder.Services.AddOptions<QualityRules>().Bind(builder.Configuration.GetSection("QualityRules"))
+    .Validate(r => double.IsFinite(r.MinimumProgress) && r.MinimumProgress is >= 0 and <= 100 &&
+        double.IsFinite(r.MinimumPrimaryPass) && r.MinimumPrimaryPass is >= 0 and <= 100 &&
+        r.MaximumOpenLinkedDefects >= 0 && r.MinimumForecastDays is >= 1 and <= 366,
+        "Quality thresholds require percentages 0–100, nonnegative defects and 1–366 forecast days.").ValidateOnStart();
 builder.Services.AddTransient<WorkItemEvidenceService>();
 builder.Services.AddTransient<WorkspaceEvidenceService>();
 var origins = builder.Configuration.GetSection("Dashboard:AllowedOrigins").Get<string[]>() ?? [];
@@ -41,6 +50,12 @@ var app = builder.Build();
 // Until enterprise caller authentication is approved, this is a loopback-only developer API.
 app.Use(async (context, next) =>
 {
+    var watch = System.Diagnostics.Stopwatch.StartNew();
+    context.Response.Headers.CacheControl = "no-store";
+    context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+    context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    try
+    {
     if (context.Request.Path.StartsWithSegments("/api") && context.Request.Path != "/api/health")
     {
         var origin = context.Request.Headers.Origin.ToString();
@@ -63,13 +78,15 @@ app.Use(async (context, next) =>
             return;
         }
     }
-    try { await next(context); }
+    await next(context);
+    }
     catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
     catch (Exception error)
     {
         var status = error switch
         {
-            ArgumentException => 400,
+            BadHttpRequestException requestError => requestError.StatusCode,
+            ArgumentException or FormatException or OverflowException => 400,
             CredentialUnavailableException or AuthenticationFailedException => 503,
             HttpRequestException or InvalidDataException or System.Text.Json.JsonException => 502,
             OperationCanceledException => 504,
@@ -81,6 +98,13 @@ app.Use(async (context, next) =>
             ? "Invalid reporting scope or configuration. Check plan, suite and offset-aware dates."
             : "Analytics unavailable. Check local Visual Studio ADO sign-in and server configuration.",
             traceId = context.TraceIdentifier });
+    }
+    finally
+    {
+        if (context.Request.Path.StartsWithSegments("/api"))
+            context.RequestServices.GetRequiredService<AuditTrail>().Add(new(DateTimeOffset.UtcNow,
+                context.Request.Method, (context.GetEndpoint() as RouteEndpoint)?.RoutePattern.RawText ?? "unmatched",
+                context.Response.StatusCode, context.TraceIdentifier, watch.ElapsedMilliseconds));
     }
 });
 app.UseCors("DashboardClient");
@@ -122,12 +146,36 @@ app.MapGet("/api/ado/frontier/history/{planId:int}", (int planId, int? suiteId, 
 });
 app.MapGet("/api/reporting/dsr-period", (Microsoft.Extensions.Options.IOptions<AzureDevOpsOptions> settings) =>
     ReportingClock.LastDsrPeriod(DateTimeOffset.UtcNow, TimeOnly.ParseExact(settings.Value.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture)));
+app.MapGet("/api/reporting/settings", (Microsoft.Extensions.Options.IOptions<AzureDevOpsOptions> settings) =>
+    new { timezone = "Europe/London", dsrCutoff = settings.Value.DsrCutoff, cacheSeconds = settings.Value.CacheSeconds });
 app.MapGet("/api/reporting/period", (string preset, Microsoft.Extensions.Options.IOptions<AzureDevOpsOptions> settings) =>
     ReportingClock.Preset(DateTimeOffset.UtcNow, preset, TimeOnly.ParseExact(settings.Value.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture)));
 app.MapGet("/api/v2/activity/{planId:int}", (int planId, int? suiteId, string from, string to, string baselineFrom,
     string? tester, ExecutionHistoryService service, CancellationToken ct) =>
     service.ActivityAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));
 app.MapControllers();
+app.MapPost("/api/v2/cache/refresh", (SnapshotCache cache) => { cache.Clear(); return Results.Ok(new { status = "Local source cache cleared", at = DateTimeOffset.UtcNow }); });
+app.MapGet("/api/v2/audit", (AuditTrail audit) => new { scope = "Local process metadata only; 500 entries; not an enterprise audit store", entries = audit.List() });
+app.MapPost("/api/v2/exports/table", (Sandpiper.QA.Dashboard.Server.Models.ReportTable table) =>
+{
+    if (table.Columns is not { Length: > 0 and <= 32 } || table.Rows == null || table.Rows.Count > 50000 ||
+        table.Columns.Any(c => c == null || c.Length > 32767) ||
+        table.Rows.Any(row => row == null || row.Length != table.Columns.Length || row.Any(cell => cell?.Length > 32767)))
+        throw new ArgumentException("Export supports 1–32 columns and at most 50,000 rows.");
+    var safe = table with { Name = "Selected records" };
+    return Results.File(ReportExporter.Excel([safe]), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Sandpiper-selected-records.xlsx");
+});
+app.MapPost("/api/v2/reconcile/{planId:int}", async (int planId, int? suiteId, string? tester,
+    Dictionary<string, int?> counts, FrontierAnalyticsService service, CancellationToken ct) =>
+{
+    var snapshot = await service.GetAnalyticsAsync(planId, ct, suiteId, tester);
+    var observed = new Dictionary<string, int> { ["total"] = snapshot.Total, ["passed"] = snapshot.Passed, ["failed"] = snapshot.Failed,
+        ["blocked"] = snapshot.Blocked, ["pending"] = snapshot.Pending, ["notApplicable"] = snapshot.Metrics.NotApplicable };
+    if (observed.Keys.Any(k => !counts.ContainsKey(k) || counts[k] is null or < 0)) throw new ArgumentException("All reference counts must be supplied.");
+    return new { status = "Compared with user-supplied counts; NOT independent corporate validation", snapshot.RetrievedAt,
+        differences = observed.Select(p => new { category = p.Key, source = p.Value, reference = counts[p.Key], difference = p.Value - counts[p.Key] }).ToArray(),
+        snapshot.Reconciliation };
+});
 app.MapGet("/api/v2/evidence/{planId:int}", (int planId, int? suiteId, string from, string to, string baselineFrom,
     string? tester, WorkspaceEvidenceService service, CancellationToken ct) =>
     service.LoadAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));

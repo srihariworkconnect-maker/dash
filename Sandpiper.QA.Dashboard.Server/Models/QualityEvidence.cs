@@ -14,7 +14,11 @@ public record DefectEvidence(int BugId, string? Title, SourceIdentity? CreatedBy
     public DateTimeOffset? VerifiedAt { get; init; }
 }
 public record BugActivity(string TesterKey, string Tester, int Raised, int Resolved, int Reopened,
-    int VerifiedWithEvidence, int VerificationAttempts);
+    int VerifiedWithEvidence, int VerificationAttempts)
+{
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? Day { get; init; }
+}
 public record QualityEvidence(bool Available, string SchemaStatus, DateTimeOffset RetrievedAt,
     IReadOnlyList<string> InspectedFields, IReadOnlyDictionary<string, string> StateCategories,
     IReadOnlyList<CaseEnrichment> Cases, IReadOnlyList<DefectEvidence> Defects,
@@ -23,6 +27,9 @@ public record QualityEvidence(bool Available, string SchemaStatus, DateTimeOffse
     IReadOnlyList<string> Limitations)
 {
     public bool RelationshipsComplete { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<BlockerEvidence>? Blockers { get; init; }
 }
+public record BlockerEvidence(int PointId, DateTimeOffset? ObservedSince, double? ObservedAgeDays, string EvidenceStatus);
 public record WorkspaceEvidence(PlanAnalytics Snapshot, ExecutionIntelligence Activity,
     QualityEvidence Quality, DateTimeOffset RetrievedAt);

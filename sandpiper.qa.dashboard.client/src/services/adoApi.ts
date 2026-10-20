@@ -31,6 +31,8 @@ export interface PlanAnalytics {
         rawOutcomeTypes: Record<string, number>; warnings: string[] };
     suiteCount: number;
     retrievedAt: string;
+    cacheAgeSeconds?: number;
+    assignments?: { testerKey: string; tester: string; assignedNow: number; pendingNow: number }[];
     rulesVersion: string;
     complete: boolean;
     connected: boolean;
@@ -64,9 +66,10 @@ export interface QualityEvidence {
     available: boolean; schemaStatus: string; retrievedAt: string; inspectedFields: string[];
     stateCategories: Record<string, string>; relationshipsComplete: boolean;
     cases: { caseId: number; priority: string | null; requirementIds: number[]; evidenceLinks: string[] }[];
-    defects: DefectEvidence[]; bugActivity: { testerKey: string; tester: string; raised: number; resolved: number; reopened: number; verifiedWithEvidence: number; verificationAttempts: number }[];
+    defects: DefectEvidence[]; bugActivity: { testerKey: string; tester: string; day?: string; raised: number; resolved: number; reopened: number; verifiedWithEvidence: number; verificationAttempts: number }[];
     openLinkedDefects: number | null; requirementGaps: number | null; releaseReadiness: string;
     riskReasons: string[]; forecast: Record<string, unknown> | null; limitations: string[];
+    blockers?: { pointId: number; observedSince: string | null; observedAgeDays: number | null; evidenceStatus: string }[];
 }
 export interface WorkspaceEvidence { snapshot: PlanAnalytics; activity: ExecutionIntelligence; quality: QualityEvidence; retrievedAt: string }
 export interface ExecutionEvent {
@@ -155,6 +158,22 @@ export function createBackendClient(baseUrl: string) {
         return response.json() as Promise<T>;
     }
     return {
+        reportingSettings: (signal: AbortSignal) => get<{ timezone: string; dsrCutoff: string; cacheSeconds: number }>('/reporting/settings', signal),
+        exportTable: async (body: { name: string; columns: string[]; rows: (string | null)[][] }, signal: AbortSignal) => {
+            const response = await fetch(`${baseUrl}/v2/exports/table`, { method: 'POST', signal, credentials: 'omit',
+                headers: { 'Content-Type': 'application/json', 'X-Sandpiper-Client': 'dashboard' }, body: JSON.stringify(body) });
+            if (!response.ok) throw new Error(`Workbook export unavailable (${response.status}). Maximum 50,000 rows / 20 MB.`);
+            return response.blob();
+        },
+        refresh: (signal: AbortSignal) => get<{ status: string }>('/v2/cache/refresh', signal, {}),
+        audit: (signal: AbortSignal) => get<{ scope: string; entries: Record<string, unknown>[] }>('/v2/audit', signal),
+        auth: (signal: AbortSignal) => get<{ authenticated: boolean; adoAuthorizationValidated?: boolean; reason?: string }>('/auth/check', signal),
+        reconcile: (planId: number, suiteId: number | null, tester: string, counts: Record<string, number>, signal: AbortSignal) => {
+            const query = new URLSearchParams();
+            if (suiteId != null) query.set('suiteId', String(suiteId));
+            if (tester) query.set('tester', tester);
+            return get<{ status: string; differences: { category: string; source: number; reference: number; difference: number }[] }>(`/v2/reconcile/${planId}?${query}`, signal, counts);
+        },
         createReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports', signal, body),
         evidence: (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal) => {
             const query = new URLSearchParams({ from, to, baselineFrom });

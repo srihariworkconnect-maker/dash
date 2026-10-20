@@ -4,6 +4,7 @@ public record TestPointSnapshot(int Id, string? Outcome);
 public record ExecutionAttempt(int RunId, int ResultId, int? PointId, string? Outcome,
     string? State, DateTimeOffset? CompletedAt);
 public record ReportingWindow(DateTimeOffset From, DateTimeOffset To);
+public record AssignedWorkload(string TesterKey, string Tester, int AssignedNow, int PendingNow);
 
 public record QaMetrics(int Total, int Passed, int Failed, int Blocked, int Pending,
     int NotApplicable, int InProgress, int OtherCompleted, int Unknown, int Executed,
@@ -35,6 +36,9 @@ public record PlanAnalytics(int PlanId, int? SuiteId, QaMetrics Metrics,
     public IReadOnlyList<NormalizedPoint> Points { get; init; } = [];
     public ReconciliationStatus? Reconciliation { get; init; }
     public string? SourceBaseUrl { get; init; }
+    public double CacheAgeSeconds { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<AssignedWorkload>? Assignments { get; init; }
     public int Total => Metrics.Total;
     public int Passed => Metrics.Passed;
     public int Failed => Metrics.Failed;

@@ -50,4 +50,15 @@ public static class TestPointNormalizer
              "Unspecified, missing and unsupported outcomes are not converted to Pending.",
              "Current-state scope is not a historical cutoff snapshot. No authoritative DSR/TCR without preserved evidence."]);
     }
+
+    public static NormalizedPoint[] Merge(IEnumerable<NormalizedPoint> source) => source.GroupBy(p => p.Id).Select(group =>
+    {
+        var first = group.First();
+        if (group.Any(p => p.PlanId != first.PlanId || p.TestCaseId != first.TestCaseId || p.ConfigurationId != first.ConfigurationId ||
+            p.AssignedTester?.Key != first.AssignedTester?.Key || p.LatestRunId != first.LatestRunId || p.LatestResultId != first.LatestResultId ||
+            p.LatestExecutedBy?.Key != first.LatestExecutedBy?.Key || p.LatestExecutionDate != first.LatestExecutionDate ||
+            KpiCalculator.Normalize(p.Outcome) != KpiCalculator.Normalize(first.Outcome) || p.OutcomeJsonType != first.OutcomeJsonType))
+            throw new InvalidDataException("Point identity or latest execution changed during collection; refresh.");
+        return first with { Memberships = group.SelectMany(p => p.Memberships).Distinct().ToArray() };
+    }).ToArray();
 }

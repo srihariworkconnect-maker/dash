@@ -6,6 +6,7 @@
     "build": "npm --prefix sandpiper.qa.dashboard.client run build",
     "lint": "npm --prefix sandpiper.qa.dashboard.client run lint",
     "test": "npm --prefix sandpiper.qa.dashboard.client test",
+    "test:e2e": "npm --prefix sandpiper.qa.dashboard.client run test:e2e",
     "package": "npm --prefix sandpiper.qa.dashboard.client run package"
   }
 }

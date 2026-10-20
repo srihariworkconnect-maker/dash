@@ -101,6 +101,28 @@ public class ApiContractTests
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.Add("X-Sandpiper-Client", "dashboard");
         Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/api/ado/testplans")).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.PostAsJsonAsync("/api/v2/cache/refresh", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, (await client.GetAsync("/api/v2/reports")).StatusCode);
+    }
+
+    [Fact]
+    public async Task ReconciliationAndBoundedWorkbookExportAreProtectedAndExplicit()
+    {
+        await using var factory = Factory(); using var client = factory.CreateClient();
+        Assert.Equal(HttpStatusCode.Forbidden, (await client.PostAsJsonAsync("/api/v2/cache/refresh", new { })).StatusCode);
+        client.DefaultRequestHeaders.Add("X-Sandpiper-Client", "dashboard");
+        var response = await client.PostAsJsonAsync("/api/v2/reconcile/819259", new { total = 3, passed = 1, failed = 0, blocked = 1, pending = 0, notApplicable = 1 });
+        response.EnsureSuccessStatusCode(); var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Contains("NOT independent", body.GetProperty("status").GetString());
+        Assert.All(body.GetProperty("differences").EnumerateArray(), row => Assert.Equal(0, row.GetProperty("difference").GetInt32()));
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v2/reconcile/819259", new { total = 3 })).StatusCode);
+        var excel = await client.PostAsJsonAsync("/api/v2/exports/table", new { name = "client-selected", columns = new[] { "Outcome" }, rows = new[] { new[] { "=formula remains text" } } });
+        excel.EnsureSuccessStatusCode(); Assert.Equal("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", excel.Content.Headers.ContentType!.MediaType);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v2/exports/table", new { name = "bad", columns = Array.Empty<string>(), rows = Array.Empty<string[]>() })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync("/api/v2/reports/import", new { kind = "DSR" })).StatusCode);
+        var audit = await client.GetFromJsonAsync<JsonElement>("/api/v2/audit");
+        Assert.Contains(audit.GetProperty("entries").EnumerateArray(), entry => entry.GetProperty("status").GetInt32() == 403);
+        Assert.Equal("no-store", response.Headers.CacheControl!.ToString());
     }
 
     [Theory]

@@ -75,15 +75,7 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
                     "Unknown", null, null, null, [], null);
                 defects.Add(DefectVerificationEvaluator.Evaluate(bug, DateTimeOffset.UtcNow));
             }
-            var actors = defects.SelectMany(b => new[] { b.CreatedBy, b.RetestedBy }.Concat(b.Revisions.Select(r => r.ChangedBy)))
-                .Select(i => i ?? new SourceIdentity("unattributed", "Unattributed")).DistinctBy(i => i.Key).Where(i => string.IsNullOrEmpty(tester) || tester == i.Key);
-            bool InWindow(DateTimeOffset? date) => date >= window.From && date < window.To;
-            var activity = actors.Select(actor => new BugActivity(actor.Key, actor.DisplayName,
-                defects.Count(b => (b.CreatedBy?.Key ?? "unattributed") == actor.Key && InWindow(b.CreatedAt)),
-                defects.Sum(b => b.Revisions.Zip(b.Revisions.Skip(1)).Count(p => p.First.Category != "Resolved" && p.Second.Category == "Resolved" && (p.Second.ChangedBy?.Key ?? "unattributed") == actor.Key && InWindow(p.Second.ChangedAt))),
-                defects.Sum(b => b.Revisions.Zip(b.Revisions.Skip(1)).Count(p => p.First.Category is "Resolved" or "Completed" && p.Second.Category is "Proposed" or "InProgress" && p.Second.ChangedBy?.Key == actor.Key && InWindow(p.Second.ChangedAt))),
-                defects.Count(b => b.VerificationStatus == "Verified with evidence" && (b.RetestedBy?.Key ?? "unattributed") == actor.Key && InWindow(b.VerifiedAt)),
-                defects.Sum(b => b.RelatedResults.Count(e => e.Qualifies && e.BugIds.Contains(b.BugId) && (e.Performer?.Key ?? "unattributed") == actor.Key && InWindow(e.CompletedAt) && b.Revisions.Any(r => r.Category == "Resolved" && r.ChangedAt < e.CompletedAt))))).ToArray();
+            var activity = BugActivityCalculator.Calculate(defects, window, tester);
             var unknownStates = defects.Any(b => b.Category == "Unknown");
             var risk = new List<string>();
             if (snapshot.Metrics.Unknown > 0) risk.Add($"{snapshot.Metrics.Unknown} current points have unclassified outcomes.");

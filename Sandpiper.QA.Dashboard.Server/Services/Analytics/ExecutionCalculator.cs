@@ -39,22 +39,23 @@ public static class ExecutionCalculator
                 previous = current;
             }
         }
-        var events = baseline.Where(e => e.CompletedAt >= window.From && (string.IsNullOrEmpty(tester) || e.Performer?.Key == tester))
+        bool Matches(ExecutionEvent e) => string.IsNullOrEmpty(tester) || (e.Performer?.Key ?? "unattributed") == tester;
+        var events = baseline.Where(e => e.CompletedAt >= window.From && Matches(e))
             .Select(e => annotated.GetValueOrDefault(e.Key, e)).OrderByDescending(e => e.CompletedAt).ToList();
         var qualifying = events.Where(e => e.Qualifies && e.PointId != null).ToList();
         var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/London");
         string Day(ExecutionEvent e) => TimeZoneInfo.ConvertTime(e.CompletedAt!.Value, zone).ToString("yyyy-MM-dd");
         var productivity = qualifying.GroupBy(e => (Key: e.Performer?.Key ?? "unattributed", Day: Day(e)))
             .Select(g => new TesterActivity(g.Key.Key, g.First().Performer?.DisplayName ?? "Unattributed", g.Key.Day,
-                points.Count(p => p.AssignedTester?.Key == g.Key.Key),
-                points.Count(p => p.AssignedTester?.Key == g.Key.Key && KpiCalculator.Normalize(p.Outcome) is "none" or "active" or "notexecuted"),
+                points.Count(p => (p.AssignedTester?.Key ?? "unattributed") == g.Key.Key),
+                points.Count(p => (p.AssignedTester?.Key ?? "unattributed") == g.Key.Key && KpiCalculator.Normalize(p.Outcome) is "none" or "active" or "notexecuted"),
                 g.Count(), g.Select(e => e.PointId).Distinct().Count(), g.Count(e => e.Outcome == "passed"),
                 g.Count(e => e.Outcome == "failed"), g.Count(e => e.Outcome == "blocked"),
                 g.Count(e => e.IsRepeat), g.Where(e => e.IsRepeat).Select(e => e.PointId).Distinct().Count())).ToList();
         var daily = qualifying.GroupBy(Day).OrderBy(g => g.Key).Select(g => new DailyActivity(g.Key, g.Count(),
             g.Select(e => e.PointId).Distinct().Count(), g.Count(e => e.IsRepeat), g.Count(e => e.Outcome == "passed"),
             g.Count(e => e.Outcome == "failed"), g.Count(e => e.Outcome == "blocked"))).ToList();
-        var pointCounts = baseline.Where(e => e.Qualifies && e.PointId != null && (string.IsNullOrEmpty(tester) || e.Performer?.Key == tester))
+        var pointCounts = baseline.Where(e => e.Qualifies && e.PointId != null && Matches(e))
             .Select(e => annotated[e.Key]).GroupBy(e => e.PointId!.Value)
             .Select(g => new PointActivity(g.Key, g.Count(), g.Count(e => e.IsRepeat))).ToList();
         var complete = missingDates == 0 && missingLinks == 0;

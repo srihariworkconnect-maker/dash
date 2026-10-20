@@ -4,6 +4,14 @@ Live Azure DevOps QA reporting using React/TypeScript/Vite and ASP.NET Core Web 
 The original Visual Studio solution structure is restored. This is an incremental
 reconciliation of the original backend and the previously pushed client, not a new app.
 
+V2 provides eight modules in the shared Command Center: Overview, Test Explorer,
+Live TCM, Productivity Tracker, DSR Center, TCR Center, Execution Intelligence and
+Quality Intelligence. Data Reconciliation, Settings and Audit History support them.
+See [V2 handoff](docs/v2-handoff.md) for functionality, VDI validation and deployment
+constraints, [gate log](docs/v2-gates.md) and [changed files](docs/v2-changed-files.md).
+Current live totals and all generated reports remain provisional until corporate
+reconciliation; no demo fallback is used.
+
 ## Structure
 
 ```text
@@ -84,10 +92,13 @@ available in the API and UI. No frontend KPI formulas or demo fallback remain.
 Suite filtering includes descendants. Overall totals deduplicate point identities;
 suite rows are explicitly own-suite totals and must not be summed as rollups.
 
-History requires an explicit offset-aware `[from, to)` period. The UI defaults to the
-last completed DSR cutoff period in Europe/London. For TCR, enter agreed release
-boundaries. It scans retained accessible result records for the current selected
-points; it cannot recover deleted results, overwritten retries or historical scope.
+History requires an explicit offset-aware `[from, to)` period and repeat-baseline
+start. The UI starts with Today between UK cutoff boundaries; before today's cutoff
+this can be an in-progress period. Yesterday/Last 7 Days use the same configured
+cutoff. `/api/reporting/dsr-period` returns the last completed DSR period. For TCR,
+enter agreed release boundaries. Release-to-Date uses the entered baseline and the
+selection time; it never invents a release date. Retained accessible result records
+cannot recover deleted results, overwritten retries or historical scope.
 
 ## Build and test
 
@@ -95,6 +106,7 @@ points; it cannot recover deleted results, overwritten retries or historical sco
 npm run build
 npm run lint
 npm test
+npm --prefix sandpiper.qa.dashboard.client run test:e2e
 dotnet build Sandpiper.QA.Dashboard.slnx -p:BuildClient=false -p:ShouldRunNpmInstall=false
 dotnet test tests/Sandpiper.QA.Dashboard.Server.Tests -p:BuildClient=false
 npm run package
@@ -122,6 +134,8 @@ infrastructure was provisioned. Current local connectivity was tested, but live 
 plan discovery returned 503 because VisualStudioCredential was unavailable on the
 implementation machine. Installed-extension backend connectivity is unverified.
 
-DSR/TCR document generation, persistence, automated distribution, defect/risk and
-leadership dashboards remain future work. See `VALIDATION.md` for exact checks and
-limitations, including packaging-tool dependency findings.
+DSR/TCR drafts support frozen evidence, Excel, PDF and an email-ready summary. The
+local report store is bounded process memory, not approved historical SQL storage.
+No report is distributed automatically. Defect verification/readiness/forecast outputs
+show evidence and limitations. See `VALIDATION.md` for actual checks; packaging and
+mocked browser tests do not establish corporate integration.

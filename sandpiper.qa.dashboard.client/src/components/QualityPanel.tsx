@@ -30,6 +30,10 @@ export default function QualityPanel({ api, context, onLoaded, compact = false }
         {error && <p className="error" role="alert">{error}</p>}
         {q && <><p className={q.available ? 'trust-banner' : 'error'}>{q.schemaStatus}</p>
             {!q.relationshipsComplete && <p className="error">Result bug links are incomplete or absent from some source records. Open-defect totals are withheld.</p>}
+            {!compact && <><h3>Blocker aging · current blocked points</h3><DataTable name="blocker aging" rows={(q.blockers ?? []).map(b => ({ ...b }))}
+                columns={['pointId', 'observedSince', 'observedAgeDays', 'evidenceStatus'].map(key => ({ key, label: key }))} onSelect={setDetail} />
+                <h3>Observed regression transitions in reporting period</h3><DataTable name="quality regression evidence" rows={(data?.activity.events ?? []).filter(e => e.transition).map(e => ({ key: e.key, pointId: e.pointId, completedAt: e.completedAt, transition: e.transition }))}
+                    columns={['key', 'pointId', 'completedAt', 'transition'].map(key => ({ key, label: key }))} onSelect={setDetail} /></>}
             {q.available && !compact && <><div className="compact-kpis">{[['Open linked defects', q.openLinkedDefects ?? 'Unavailable'], ['Requirement-link gaps', q.requirementGaps ?? 'Unavailable'],
                 ['Release readiness', q.releaseReadiness]].map(([label, value]) => <div className="compact-kpi" key={label}><small>{label}</small><b>{value}</b></div>)}</div>
                 <h3>Explainable risk summary</h3><ul>{q.riskReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
@@ -40,8 +44,8 @@ export default function QualityPanel({ api, context, onLoaded, compact = false }
                     createdByName: b.createdBy?.displayName ?? 'Unattributed', assignedName: b.assignedTo?.displayName,
                     retestedByName: b.retestedBy?.displayName, evidence: b.verificationEvidence.join('; ') }))}
                     columns={['bugId', 'title', 'state', 'severity', 'priority', 'ageDays', 'verificationStatus', 'createdByName', 'createdAt', 'assignedName', 'retestedByName', 'retestedAt', 'verificationOutcome', 'evidence'].map(key => ({ key, label: key }))} onSelect={setDetail} />
-                <h3>Bug activity · Created By and revision actors</h3><DataTable name="bug activity" rows={q.bugActivity.map(b => ({ ...b, key: b.testerKey }))}
-                    columns={['tester', 'raised', 'resolved', 'reopened', 'verifiedWithEvidence', 'verificationAttempts'].map(key => ({ key, label: key }))} onSelect={setDetail} />
+                <h3>Daily bug activity · Created By and revision actors</h3><DataTable name="bug activity" rows={q.bugActivity.map(b => ({ ...b, key: `${b.testerKey}:${b.day}` }))}
+                    columns={['tester', 'day', 'raised', 'resolved', 'reopened', 'verifiedWithEvidence', 'verificationAttempts'].map(key => ({ key, label: key }))} onSelect={setDetail} />
                 <h3>Completion scenarios</h3>{q.forecast ? <pre>{JSON.stringify(q.forecast, null, 2)}</pre> : <p>Unavailable: insufficient validated baseline/throughput evidence. No AI forecast.</p>}
                 <details><summary>Inspected schema and transparent state categories</summary><pre>{JSON.stringify({ fields: q.inspectedFields, states: q.stateCategories }, null, 2)}</pre></details>
             </>}

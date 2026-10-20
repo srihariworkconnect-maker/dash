@@ -89,4 +89,39 @@ actors/times and later results. Confirm unknown relationships remain unavailable
 Limitations: no live corporate Bug schema was accessible here. These rules are an
 explicit implementation to validate, not a claim of confirmed workflow integration.
 Forecast scenarios are assumptions, not AI or release approval. Blocker-start aging
-cannot be recovered from current status alone.
+cannot be recovered from current status alone; Gate F adds conservative observed-streak
+evidence only when a current result can be reconciled to history.
+
+## Gate F — performance, security and handoff
+
+Implemented bounded identity/source-partitioned plan and revision-keyed run caches,
+single-flight loads, refresh invalidation, current-assignment projections using the
+shared calculator, bounded metadata audit including denied requests, no-store/nosniff
+headers, import/export bounds and validated reporting/quality configuration. Reuses
+one cached whole-plan hierarchy across subtree/tester projections. Conflicting point
+configuration/latest-result metadata fails the collection instead of hiding a conflict.
+
+Added virtual table scrolling, full-filter Excel/CSV exports, local frozen report
+history/import UI, reference-count reconciliation, sign-in diagnostics, configured
+cutoff display, richer point/history/bug/attachment details, own-suite repeat hotspots,
+daily bug attribution and observed blocker-streak aging. Preserved extension SDK,
+relative assets and production endpoint/authentication safeguards. Added Chromium
+browser regression tests with 5,000 synthetic points confined to test interception.
+
+Final checks: full .slnx build (zero warnings/errors), 51 backend tests, 9 client tests,
+ESLint and frontend build. Three Chromium regressions exercise eight-module navigation,
+scope reset/preservation, virtual rendering, export scope and refresh failure behavior.
+Local VSIX packaging succeeds. Backend advisory scan reports none; the packaging UUID
+override removes npm advisories while retaining the compatible tfx-cli version.
+
+VDI: follow docs/v2-handoff.md in gate order. In particular, reconcile both Frontier
+plans before accepting reports, test actual run/result and Bug relationships, confirm
+Unicode/PDF output and large-table responsiveness, time cached/cold/refresh behavior,
+and review audit metadata and denied-request behavior. Installed-extension connectivity
+must be tested only with an approved endpoint and authentication arrangement.
+
+Limitations: no corporate credentials, approved hosting/authentication, SQL database,
+durable synchronization watermark, authoritative historical cutoff snapshots or
+automated distribution. Local process caches/audit/report drafts are explicitly bounded
+and volatile. Source/history/schema and installed-extension behavior remain awaiting
+corporate validation. The API intentionally remains unavailable for production data.

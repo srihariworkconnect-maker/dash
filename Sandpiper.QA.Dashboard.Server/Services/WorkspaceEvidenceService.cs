@@ -13,6 +13,7 @@ public sealed class WorkspaceEvidenceService(FrontierAnalyticsService analytics,
         var events = await history.ReadAsync(planId, ct);
         var activity = ExecutionCalculator.Calculate(events, snapshot.Points, window, baselineFrom, tester);
         var quality = await workItems.LoadAsync(snapshot, events, window, tester, ct);
-        return new(snapshot, activity, QualityCalculator.Assess(snapshot, activity, quality, rules.Value), DateTimeOffset.UtcNow);
+        return new(snapshot, activity, QualityCalculator.Assess(snapshot, activity, quality, rules.Value)
+            with { Blockers = BlockerCalculator.Calculate(snapshot, events) }, DateTimeOffset.UtcNow);
     }
 }

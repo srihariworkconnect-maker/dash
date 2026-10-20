@@ -31,4 +31,15 @@ public class NormalizationTests
         Assert.Null(point.LatestExecutedBy);
         Assert.Equal("Missing", point.OutcomeJsonType);
     }
+
+    [Fact]
+    public void OverlappingMembershipMergesButConflictingConfigurationOrResultCannotHide()
+    {
+        using var json = JsonDocument.Parse("""{"id":1,"testCaseReference":{"id":10},"configuration":{"id":2},"results":{"outcome":"passed","lastResultId":7}}""");
+        var first = TestPointNormalizer.Normalize(json.RootElement, 1, 1, "Root");
+        var second = first with { Memberships = [new(2, "Root / Child")] };
+        Assert.Equal(2, TestPointNormalizer.Merge([first, second]).Single().Memberships.Count);
+        Assert.Throws<InvalidDataException>(() => TestPointNormalizer.Merge([first, second with { ConfigurationId = 3 }]));
+        Assert.Throws<InvalidDataException>(() => TestPointNormalizer.Merge([first, second with { LatestResultId = 8 }]));
+    }
 }

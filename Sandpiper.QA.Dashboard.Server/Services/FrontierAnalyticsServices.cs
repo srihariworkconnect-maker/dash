@@ -2,11 +2,12 @@ using System.Text.Json;
 using Microsoft.Extensions.Options;
 using Sandpiper.QA.Dashboard.Server.Models;
 using Sandpiper.QA.Dashboard.Server.Services.Analytics;
+using Sandpiper.QA.Dashboard.Server.Services.Infrastructure;
 
 namespace Sandpiper.QA.Dashboard.Server.Services;
 
 // Preserve the original service and Frontier route while accepting additional plans.
-public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<AzureDevOpsOptions> options)
+public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<AzureDevOpsOptions> options, SnapshotCache? cache = null)
 {
     public async Task<object> GetPlansAsync(CancellationToken ct) => new
     {
@@ -24,10 +25,16 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
     public async Task<PlanAnalytics> GetAnalyticsAsync(int planId, CancellationToken ct = default,
         int? suiteId = null, string? tester = null)
     {
-        var snapshot = await LoadScopeAsync(planId, suiteId, ct);
-        if (!string.IsNullOrWhiteSpace(tester))
-            foreach (var id in snapshot.Points.Keys.ToArray())
-                snapshot.Points[id] = snapshot.Points[id].Where(p => p.AssignedTester?.Key == tester).ToList();
+        Positive(planId);
+        var key = cache == null ? "" : await ado.ScopeKeyAsync(ct) + $":plan:{planId}";
+        var full = cache == null ? await CollectAnalyticsAsync(planId, ct) : await cache.GetAsync(key,
+            TimeSpan.FromSeconds(options.Value.CacheSeconds), token => CollectAnalyticsAsync(planId, token), ct);
+        return ScopeProjector.Project(full, suiteId, tester) with { CacheAgeSeconds = Math.Max(0, (DateTimeOffset.UtcNow - full.RetrievedAt).TotalSeconds) };
+    }
+
+    private async Task<PlanAnalytics> CollectAnalyticsAsync(int planId, CancellationToken ct)
+    {
+        var snapshot = await LoadScopeAsync(planId, null, ct);
         var metrics = KpiCalculator.Calculate(snapshot.Points.Values.SelectMany(points => points));
         HashSet<int> Descendants(int id)
         {
@@ -37,12 +44,12 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
                 if (s.ParentId is { } parent && ids.Contains(parent)) changed |= ids.Add(s.Id); }
             return ids;
         }
+        var descendants = snapshot.Suites.ToDictionary(s => s.Id, s => Descendants(s.Id));
         var suites = snapshot.Suites.Select(suite => new SuiteAnalytics(suite.Id, suite.Name,
             suite.ParentId, KpiCalculator.Calculate(snapshot.Points[suite.Id]))
-            { SubtreeMetrics = KpiCalculator.Calculate(snapshot.Points.Where(p => Descendants(suite.Id).Contains(p.Key)).SelectMany(p => p.Value)) }).ToList();
-        var points = snapshot.Points.Values.SelectMany(p => p).GroupBy(p => p.Id)
-            .Select(g => g.First() with { Memberships = g.SelectMany(p => p.Memberships).Distinct().ToArray() }).ToArray();
-        return new(planId, suiteId, metrics, suites, suites.Count, DateTimeOffset.UtcNow)
+            { SubtreeMetrics = KpiCalculator.Calculate(snapshot.Points.Where(p => descendants[suite.Id].Contains(p.Key)).SelectMany(p => p.Value)) }).ToList();
+        var points = TestPointNormalizer.Merge(snapshot.Points.Values.SelectMany(p => p));
+        return new(planId, null, metrics, suites, suites.Count, DateTimeOffset.UtcNow)
         { Points = points, Reconciliation = TestPointNormalizer.Reconcile(points), SourceBaseUrl = options.Value.BaseUrl };
     }
 
