@@ -95,7 +95,7 @@ app.MapGet("/api/auth/check", async (TokenCredential credential, CancellationTok
 });
 app.MapGet("/api/ado/testplans", (FrontierAnalyticsService service, CancellationToken ct) => service.GetPlansAsync(ct));
 app.MapGet("/api/ado/frontier/analytics/{planId:int}",
-    (int planId, int? suiteId, FrontierAnalyticsService service, CancellationToken ct) => service.GetAnalyticsAsync(planId, ct, suiteId));
+    (int planId, int? suiteId, string? tester, FrontierAnalyticsService service, CancellationToken ct) => service.GetAnalyticsAsync(planId, ct, suiteId, tester));
 app.MapGet("/api/ado/frontier/suites/{planId:int}", async (int planId, FrontierAnalyticsService service, CancellationToken ct) =>
     new { value = await service.GetSuitesAsync(planId, ct) });
 app.MapGet("/api/ado/frontier/points/{planId:int}/{suiteId:int}",
@@ -115,6 +115,8 @@ app.MapGet("/api/ado/frontier/history/{planId:int}", (int planId, int? suiteId, 
 });
 app.MapGet("/api/reporting/dsr-period", (Microsoft.Extensions.Options.IOptions<AzureDevOpsOptions> settings) =>
     ReportingClock.LastDsrPeriod(DateTimeOffset.UtcNow, TimeOnly.ParseExact(settings.Value.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture)));
+app.MapGet("/api/reporting/period", (string preset, Microsoft.Extensions.Options.IOptions<AzureDevOpsOptions> settings) =>
+    ReportingClock.Preset(DateTimeOffset.UtcNow, preset, TimeOnly.ParseExact(settings.Value.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture)));
 app.MapControllers();
 app.Run();
 

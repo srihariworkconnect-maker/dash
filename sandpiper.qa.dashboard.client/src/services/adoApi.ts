@@ -23,12 +23,27 @@ export interface PlanAnalytics {
     planId: number;
     suiteId: number | null;
     metrics: QaMetrics;
-    suites: { suiteId: number; suiteName: string; parentSuiteId: number | null; metrics: QaMetrics }[];
+    suites: { suiteId: number; suiteName: string; parentSuiteId: number | null; metrics: QaMetrics; subtreeMetrics: QaMetrics }[];
+    points: NormalizedPoint[];
+    sourceBaseUrl: string | null;
+    reconciliation: { collectionComplete: boolean; validationState: string; unspecified: number;
+        missingOutcome: number; unsupportedOutcomeType: number; missingCaseIdentity: number;
+        rawOutcomeTypes: Record<string, number>; warnings: string[] };
     suiteCount: number;
     retrievedAt: string;
     rulesVersion: string;
     complete: boolean;
     connected: boolean;
+}
+
+export interface Identity { key: string; displayName: string }
+export interface NormalizedPoint {
+    id: number; planId: number; outcome: string | null; testCaseId: number | null;
+    title: string | null; configurationId: number | null; configurationName: string | null;
+    assignedTester: Identity | null; latestExecutedBy: Identity | null;
+    latestRunId: number | null; latestResultId: number | null; latestExecutionDate: string | null;
+    outcomeJsonType: string; rawOutcome: string | null; resultState: string | null; isActive: boolean | null;
+    memberships: { suiteId: number; suitePath: string }[];
 }
 
 export interface ReportingWindow { from: string; to: string }
@@ -100,18 +115,22 @@ export function createBackendClient(baseUrl: string) {
         }
         return response.json() as Promise<T>;
     }
-    const scope = (suiteId: number | null) => suiteId == null ? '' : `?suiteId=${suiteId}`;
     return {
         health: (signal: AbortSignal) => get<{ status: string; adoConnected: boolean | null }>('/health', signal),
         plans: (signal: AbortSignal) => get<{ value: AdoTestPlan[] }>('/ado/testplans', signal),
-        analytics: async (planId: number, suiteId: number | null, signal: AbortSignal) => {
-            const result = await get<PlanAnalytics>(`/ado/frontier/analytics/${planId}${scope(suiteId)}`, signal);
+        analytics: async (planId: number, suiteId: number | null, signal: AbortSignal, tester?: string) => {
+            const query = new URLSearchParams();
+            if (suiteId != null) query.set('suiteId', String(suiteId));
+            if (tester) query.set('tester', tester);
+            const suffix = query.size ? `?${query}` : '';
+            const result = await get<PlanAnalytics>(`/ado/frontier/analytics/${planId}${suffix}`, signal);
             if (result.planId !== planId || (result.suiteId ?? null) !== suiteId || !result.complete || !result.connected) {
                 throw new Error('Backend returned an incomplete or mismatched analytics scope.');
             }
             return result;
         },
         dsrPeriod: (signal: AbortSignal) => get<ReportingWindow>('/reporting/dsr-period', signal),
+        period: (preset: string, signal: AbortSignal) => get<ReportingWindow>(`/reporting/period?preset=${encodeURIComponent(preset)}`, signal),
         history: (planId: number, suiteId: number | null, window: ReportingWindow, signal: AbortSignal) => {
             const query = new URLSearchParams({ from: window.from, to: window.to });
             if (suiteId != null) query.set('suiteId', String(suiteId));

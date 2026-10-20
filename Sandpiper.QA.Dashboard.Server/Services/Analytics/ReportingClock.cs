@@ -4,6 +4,16 @@ namespace Sandpiper.QA.Dashboard.Server.Services.Analytics;
 
 public static class ReportingClock
 {
+    public static ReportingWindow Preset(DateTimeOffset now, string preset, TimeOnly cutoff)
+    {
+        var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/London");
+        var date = TimeZoneInfo.ConvertTime(now, zone).Date;
+        if (preset == "Yesterday") date = date.AddDays(-1);
+        if (preset is not ("Today" or "Yesterday" or "Last 7 Days"))
+            throw new ArgumentException("Use explicit offset-aware dates for custom/release scope.");
+        var end = DateTime.SpecifyKind(date.Add(cutoff.ToTimeSpan()), DateTimeKind.Unspecified);
+        return new(ToInstant(end.AddDays(preset == "Last 7 Days" ? -7 : -1), zone), ToInstant(end, zone));
+    }
     public static ReportingWindow LastDsrPeriod(DateTimeOffset now, TimeOnly cutoff)
     {
         var zone = TimeZoneInfo.FindSystemTimeZoneById("Europe/London");

@@ -18,6 +18,7 @@ public record ReexecutionMetrics(int? ReExecuted, int LinkedReExecuted,
 public record SuiteAnalytics(int SuiteId, string SuiteName, int? ParentSuiteId,
     QaMetrics Metrics)
 {
+    public QaMetrics? SubtreeMetrics { get; init; }
     public int Total => Metrics.Total;
     public int Passed => Metrics.Passed;
     public int Failed => Metrics.Failed;
@@ -33,6 +34,7 @@ public record PlanAnalytics(int PlanId, int? SuiteId, QaMetrics Metrics,
     // Keep the original Frontier endpoint's aggregate fields for existing consumers.
     public IReadOnlyList<NormalizedPoint> Points { get; init; } = [];
     public ReconciliationStatus? Reconciliation { get; init; }
+    public string? SourceBaseUrl { get; init; }
     public int Total => Metrics.Total;
     public int Passed => Metrics.Passed;
     public int Failed => Metrics.Failed;

@@ -22,16 +22,28 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
         ado.ListAsync($"testplan/Plans/{Positive(planId)}/Suites/{Positive(suiteId)}/TestPoint", ct);
 
     public async Task<PlanAnalytics> GetAnalyticsAsync(int planId, CancellationToken ct = default,
-        int? suiteId = null)
+        int? suiteId = null, string? tester = null)
     {
         var snapshot = await LoadScopeAsync(planId, suiteId, ct);
+        if (!string.IsNullOrWhiteSpace(tester))
+            foreach (var id in snapshot.Points.Keys.ToArray())
+                snapshot.Points[id] = snapshot.Points[id].Where(p => p.AssignedTester?.Key == tester).ToList();
         var metrics = KpiCalculator.Calculate(snapshot.Points.Values.SelectMany(points => points));
+        HashSet<int> Descendants(int id)
+        {
+            HashSet<int> ids = [id];
+            var changed = true;
+            while (changed) { changed = false; foreach (var s in snapshot.Suites)
+                if (s.ParentId is { } parent && ids.Contains(parent)) changed |= ids.Add(s.Id); }
+            return ids;
+        }
         var suites = snapshot.Suites.Select(suite => new SuiteAnalytics(suite.Id, suite.Name,
-            suite.ParentId, KpiCalculator.Calculate(snapshot.Points[suite.Id]))).ToList();
+            suite.ParentId, KpiCalculator.Calculate(snapshot.Points[suite.Id]))
+            { SubtreeMetrics = KpiCalculator.Calculate(snapshot.Points.Where(p => Descendants(suite.Id).Contains(p.Key)).SelectMany(p => p.Value)) }).ToList();
         var points = snapshot.Points.Values.SelectMany(p => p).GroupBy(p => p.Id)
             .Select(g => g.First() with { Memberships = g.SelectMany(p => p.Memberships).Distinct().ToArray() }).ToArray();
         return new(planId, suiteId, metrics, suites, suites.Count, DateTimeOffset.UtcNow)
-        { Points = points, Reconciliation = TestPointNormalizer.Reconcile(points) };
+        { Points = points, Reconciliation = TestPointNormalizer.Reconcile(points), SourceBaseUrl = options.Value.BaseUrl };
     }
 
     public async Task<object> GetReexecutionAsync(int planId, int? suiteId,
