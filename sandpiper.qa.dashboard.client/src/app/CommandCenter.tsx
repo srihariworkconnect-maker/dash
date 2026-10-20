@@ -5,6 +5,7 @@ import { initialContext, changePlan, pointRows, suiteRows } from './ReportingCon
 import DataTable, { type Column, type DataRow } from '../components/DataTable';
 import TestSuiteTree from '../components/TestSuiteTree';
 import ActivityPanel from '../components/ActivityPanel';
+import ReportPanel from '../components/ReportPanel';
 import '../v2.css';
 
 const modules = ['Overview', 'Test Explorer', 'Live TCM', 'Productivity Tracker', 'DSR Center', 'TCR Center', 'Execution Intelligence', 'Quality Intelligence'];
@@ -135,7 +136,8 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
                 <p>No mandatory release mapping. Select a plan/subtree and explicit baseline dates. Saved table views store columns and sort metadata only.</p>
                 <p>Enterprise endpoint, database and authentication require AXA approval. The API remains local-development only.</p></section>}
             {snapshot && ['Productivity Tracker', 'Execution Intelligence'].includes(module) && <ActivityPanel key={JSON.stringify(context)} api={api} context={context} mode={module} />}
-            {!['Overview', 'Test Explorer', 'Live TCM', 'Data Reconciliation', 'Settings', 'Productivity Tracker', 'Execution Intelligence'].includes(module) && <section className="cc-panel"><h2>{module}</h2><p>Dependent evidence and services are being added in subsequent gate commits. Unavailable metrics are not zero.</p></section>}
+            {snapshot && ['DSR Center', 'TCR Center'].includes(module) && <ReportPanel key={`${module}:${JSON.stringify(context)}`} api={api} context={context} kind={module === 'DSR Center' ? 'DSR' : 'TCR'} />}
+            {!['Overview', 'Test Explorer', 'Live TCM', 'Data Reconciliation', 'Settings', 'Productivity Tracker', 'Execution Intelligence', 'DSR Center', 'TCR Center'].includes(module) && <section className="cc-panel"><h2>{module}</h2><p>Dependent evidence and services are being added in subsequent gate commits. Unavailable metrics are not zero.</p></section>}
             {detail && <aside className="detail-panel" aria-label="Record details"><button onClick={() => setDetail(null)}>Close details ×</button><h2>Source record</h2>
                 {Object.entries(detail).map(([key, value]) => <div className="stat-row" key={key}><span>{key}</span><strong>{value == null ? 'Unavailable' : String(value)}</strong></div>)}</aside>}
         </main></div></div>;

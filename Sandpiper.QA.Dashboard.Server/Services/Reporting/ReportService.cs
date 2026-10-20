@@ -1,0 +1,100 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+using Sandpiper.QA.Dashboard.Server.Models;
+using Sandpiper.QA.Dashboard.Server.Services.Analytics;
+
+namespace Sandpiper.QA.Dashboard.Server.Services.Reporting;
+
+public sealed class ReportStore
+{
+    public static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private readonly Dictionary<Guid, (DateTimeOffset StoredAt, byte[] Bytes)> reports = [];
+    private readonly object gate = new();
+    public ReportSnapshot Put(ReportSnapshot report)
+    {
+        lock (gate)
+        {
+            foreach (var id in reports.Where(p => p.Value.StoredAt < DateTimeOffset.UtcNow.AddMinutes(-60)).Select(p => p.Key).ToArray()) reports.Remove(id);
+            if (reports.Count >= 25) reports.Remove(reports.MinBy(p => p.Value.StoredAt).Key);
+            reports[report.Id] = (DateTimeOffset.UtcNow, JsonSerializer.SerializeToUtf8Bytes(report, Json));
+        }
+        return report;
+    }
+    public ReportSnapshot? Get(Guid id)
+    {
+        lock (gate) return reports.TryGetValue(id, out var value) && value.StoredAt >= DateTimeOffset.UtcNow.AddMinutes(-60)
+            ? JsonSerializer.Deserialize<ReportSnapshot>(value.Bytes, Json) : null;
+    }
+    public object List()
+    {
+        lock (gate) return reports.Values.Where(v => v.StoredAt >= DateTimeOffset.UtcNow.AddMinutes(-60)).Select(v =>
+        {
+            var r = JsonSerializer.Deserialize<ReportSnapshot>(v.Bytes, Json)!;
+            return new { r.Id, r.Kind, r.CreatedAt, r.Status, planId = r.CurrentSnapshot.PlanId, r.Checksum };
+        }).ToArray();
+    }
+    public static string Hash(ReportSnapshot report) => Convert.ToHexString(SHA256.HashData(
+        JsonSerializer.SerializeToUtf8Bytes(report with { Checksum = "" }, Json)));
+}
+
+public sealed class ReportService(FrontierAnalyticsService analytics, ExecutionHistoryService history, ReportStore store)
+{
+    public async Task<ReportSnapshot> CreateAsync(ReportRequest request, CancellationToken ct)
+    {
+        if (request.Kind is not ("DSR" or "TCR")) throw new ArgumentException("Choose DSR or TCR.");
+        var window = ReportingScope.Window(request.From, request.To);
+        var baseline = ReportingScope.Instant(request.BaselineFrom);
+        var current = await analytics.GetAnalyticsAsync(request.PlanId, ct, request.SuiteId, request.Tester);
+        var activity = await history.ActivityAsync(request.PlanId, request.SuiteId, window, baseline, request.Tester, ct);
+        var narrative = (request.Narrative ?? []).Where(p => p.Key.Length <= 60).ToDictionary(p => p.Key, p => p.Value.Length <= 4000 ? p.Value : p.Value[..4000]);
+        var report = new ReportSnapshot(Guid.NewGuid(), request.Kind, DateTimeOffset.UtcNow, "v2-2026-10-20.1",
+            "Draft — awaiting corporate reconciliation and historical cutoff evidence", "Local ADO collection", "", current, activity, narrative,
+            ["Current point snapshot is at collection time, NOT a reconstructed historical cutoff snapshot.",
+             "Frozen export can reproduce this draft; authoritative historical DSR requires approved preserved data.",
+             "Evidence bundle checksum detects changes; it is not a digital signature or corporate approval.",
+             "Reports are held in memory for 60 minutes / at most 25 reports. Export the evidence bundle to approved storage.",
+             "No report is emailed, release signed off, or infrastructure provisioned automatically.",
+             "Defect, coverage and verification evidence may be unavailable and is not reported as zero."]);
+        return store.Put(report with { Checksum = ReportStore.Hash(report) });
+    }
+
+    public ReportSnapshot Import(ReportSnapshot report)
+    {
+        if (report.CalculationVersion != "v2-2026-10-20.1" || report.Checksum != ReportStore.Hash(report))
+            throw new ArgumentException("Evidence checksum or schema version is invalid.");
+        // Imports never establish trusted source/validation, even if the original claimed it.
+        var copy = report with { Id = Guid.NewGuid(), Status = "Draft — imported evidence, untrusted source",
+            Origin = "User-imported evidence; not authenticated ADO provenance", Checksum = "" };
+        return store.Put(copy with { Checksum = ReportStore.Hash(copy) });
+    }
+
+    public static IReadOnlyList<ReportTable> Tables(ReportSnapshot r)
+    {
+        static string S(object? v) => v?.ToString() ?? "Unavailable";
+        var m = r.CurrentSnapshot.Metrics;
+        return [
+            new("Metadata", ["Field", "Value"], [
+                ["Report", r.Kind], ["Status", r.Status], ["ID", r.Id.ToString()], ["Scope", $"Plan {r.CurrentSnapshot.PlanId}; suite {r.CurrentSnapshot.SuiteId?.ToString() ?? "all"}"],
+                ["Created UTC", r.CreatedAt.ToString("O")], ["Current source UTC", r.CurrentSnapshot.RetrievedAt.ToString("O")],
+                ["Period from", r.Activity.Window.From.ToString("O")], ["Period to exclusive", r.Activity.Window.To.ToString("O")],
+                ["Baseline", r.Activity.Baseline.From.ToString("O")], ["Timezone", "Europe/London"], ["Rules", r.CalculationVersion], ["Checksum", r.Checksum],
+                ..r.Narrative.Select(p => new string?[] { p.Key, p.Value }), ..r.Limitations.Select(text => new string?[] { "Limitation", text })]),
+            new("Execution snapshot", ["Category", "Count"], [..m.Statuses.Select(p => new string?[] { p.Key, S(p.Value) }),
+                ["Total unique points", S(m.Total)], ["Primary pass %", S(m.PrimaryPassRate)], ["Secondary pass %", S(m.SecondaryPassRate)],
+                ["Progress %", S(m.ExecutionRate)], ["Re-executed baseline points", S(r.Activity.ReExecutedPoints)], ["Period repeat events", S(r.Activity.RepeatEvents)]]),
+            new("Live TCM", ["Point ID", "Case ID", "Title", "Suite path", "Configuration", "Assigned", "Latest performer", "Latest date UTC", "Latest outcome", "Baseline executions", "Baseline repeats"],
+                r.CurrentSnapshot.Points.Select(p => { var count = r.Activity.Points.SingleOrDefault(a => a.PointId == p.Id); return new string?[] {
+                    S(p.Id), S(p.TestCaseId), p.Title, string.Join("; ", p.Memberships.Select(s => s.SuitePath)), p.ConfigurationName,
+                    p.AssignedTester?.DisplayName, p.LatestExecutedBy?.DisplayName, p.LatestExecutionDate?.ToString("O"), p.Outcome,
+                    r.Activity.Complete ? S(count?.ExecutionCount ?? 0) : "Incomplete", r.Activity.Complete ? S(count?.RepeatCount ?? 0) : "Incomplete" }; }).ToList()),
+            new("Period activity", ["Run:Result", "Point", "Outcome", "Completed UTC", "Actual performer", "Repeat", "Transition", "Result bug IDs"],
+                r.Activity.Events.Select(e => new string?[] { e.Key, S(e.PointId), e.Outcome, e.CompletedAt?.ToString("O"), e.Performer?.DisplayName ?? "Unattributed", S(e.IsRepeat), e.Transition, string.Join(",", e.BugIds) }).ToList()),
+            new("Productivity", ["Actual performer", "UK day", "Assigned now", "Pending assigned now", "Events", "Unique points", "Passed", "Failed", "Blocked", "Repeat events", "Repeated points"],
+                r.Activity.Productivity.Select(p => new string?[] { p.Tester, p.Day, S(p.AssignedPoints), S(p.PendingAssigned), S(p.ExecutionEvents), S(p.UniquePoints), S(p.Passed), S(p.Failed), S(p.Blocked), S(p.RepeatEvents), S(p.ReExecutedPoints) }).ToList()),
+            new("Daily trend", ["UK day", "Execution events", "Unique points", "Repeat events", "Passed", "Failed", "Blocked"],
+                r.Activity.Daily.Select(d => new string?[] { d.Day, S(d.ExecutionEvents), S(d.UniquePoints), S(d.RepeatEvents), S(d.Passed), S(d.Failed), S(d.Blocked) }).ToList()),
+            new("Defects and risks", ["Section", "Evidence"], [["Defect verification", "Requires result-level links, work-item schema and chronology evidence"],
+                ["Historical cutoff snapshot", "Unavailable — current collection state shown separately"], ["Sign-off", "Human decision required; no automatic release approval"]])
+        ];
+    }
+}

@@ -4,6 +4,7 @@ using Azure.Core;
 using Azure.Identity;
 using Sandpiper.QA.Dashboard.Server.Services;
 using Sandpiper.QA.Dashboard.Server.Services.Analytics;
+using Sandpiper.QA.Dashboard.Server.Services.Reporting;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true).AddEnvironmentVariables();
@@ -25,10 +26,12 @@ builder.Services.AddHttpClient<AzureDevOpsClient>(client => client.Timeout = Tim
 builder.Services.AddHttpClient<AzureDevOpsService>();
 builder.Services.AddTransient<FrontierAnalyticsService>();
 builder.Services.AddTransient<ExecutionHistoryService>();
+builder.Services.AddSingleton<ReportStore>();
+builder.Services.AddTransient<ReportService>();
 var origins = builder.Configuration.GetSection("Dashboard:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddPolicy("DashboardClient", policy =>
 {
-    if (origins.Length > 0) policy.WithOrigins(origins).WithHeaders("X-Sandpiper-Client").WithMethods("GET");
+    if (origins.Length > 0) policy.WithOrigins(origins).WithHeaders("X-Sandpiper-Client", "Content-Type").WithMethods("GET", "POST");
 }));
 
 var app = builder.Build();
@@ -122,6 +125,21 @@ app.MapGet("/api/v2/activity/{planId:int}", (int planId, int? suiteId, string fr
     string? tester, ExecutionHistoryService service, CancellationToken ct) =>
     service.ActivityAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));
 app.MapControllers();
+app.MapPost("/api/v2/reports", (Sandpiper.QA.Dashboard.Server.Models.ReportRequest request, ReportService service, CancellationToken ct) => service.CreateAsync(request, ct));
+app.MapGet("/api/v2/reports", (ReportStore store) => store.List());
+app.MapPost("/api/v2/reports/import", (Sandpiper.QA.Dashboard.Server.Models.ReportSnapshot report, ReportService service) => service.Import(report));
+app.MapGet("/api/v2/reports/{id:guid}", (Guid id, ReportStore store) => store.Get(id) is { } report ? Results.Ok(report) : Results.NotFound());
+app.MapGet("/api/v2/reports/{id:guid}/{format}", (Guid id, string format, ReportStore store) =>
+{
+    if (store.Get(id) is not { } report) return Results.NotFound();
+    return format switch
+    {
+        "xlsx" => Results.File(ReportExporter.Excel(ReportService.Tables(report)), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", $"Sandpiper-{report.Kind}-{id}.xlsx"),
+        "pdf" => Results.File(ReportExporter.Pdf(report), "application/pdf", $"Sandpiper-{report.Kind}-{id}.pdf"),
+        "json" => Results.File(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(report, ReportStore.Json), "application/json", $"Sandpiper-evidence-{id}.json"),
+        _ => Results.BadRequest()
+    };
+});
 app.Run();
 
 public partial class Program;

@@ -47,6 +47,11 @@ export interface NormalizedPoint {
 }
 
 export interface ReportingWindow { from: string; to: string }
+export interface ReportSnapshot {
+    id: string; kind: string; createdAt: string; calculationVersion: string; status: string; origin: string;
+    checksum: string; currentSnapshot: PlanAnalytics; activity: ExecutionIntelligence;
+    narrative: Record<string, string>; limitations: string[];
+}
 export interface ExecutionEvent {
     key: string; runId: number; resultId: number; pointId: number | null; outcome: string;
     state: string | null; completedAt: string | null; performer: Identity | null;
@@ -113,10 +118,11 @@ export function buildSuiteTree(suites: PlanAnalytics['suites']): AdoTestSuite[] 
 }
 
 export function createBackendClient(baseUrl: string) {
-    async function get<T>(path: string, signal: AbortSignal): Promise<T> {
+    async function get<T>(path: string, signal: AbortSignal, body?: unknown): Promise<T> {
         const response = await fetch(`${baseUrl}${path}`, {
             signal, credentials: 'omit',
-            headers: { Accept: 'application/json', 'X-Sandpiper-Client': 'dashboard' },
+            method: body == null ? 'GET' : 'POST', body: body == null ? undefined : JSON.stringify(body),
+            headers: { Accept: 'application/json', 'X-Sandpiper-Client': 'dashboard', ...(body == null ? {} : { 'Content-Type': 'application/json' }) },
         });
         if (!response.ok) {
             let trace = '';
@@ -132,6 +138,16 @@ export function createBackendClient(baseUrl: string) {
         return response.json() as Promise<T>;
     }
     return {
+        createReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports', signal, body),
+        importReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports/import', signal, body),
+        reports: (signal: AbortSignal) => get<{ id: string; kind: string; createdAt: string; status: string; planId: number; checksum: string }[]>('/v2/reports', signal),
+        report: (id: string, signal: AbortSignal) => get<ReportSnapshot>(`/v2/reports/${encodeURIComponent(id)}`, signal),
+        exportReport: async (id: string, format: string, signal: AbortSignal) => {
+            const response = await fetch(`${baseUrl}/v2/reports/${encodeURIComponent(id)}/${format}`, { signal,
+                credentials: 'omit', headers: { 'X-Sandpiper-Client': 'dashboard' } });
+            if (!response.ok) throw new Error(`Export unavailable (${response.status}). The snapshot may have expired or the PDF font is unavailable.`);
+            return response.blob();
+        },
         health: (signal: AbortSignal) => get<{ status: string; adoConnected: boolean | null }>('/health', signal),
         plans: (signal: AbortSignal) => get<{ value: AdoTestPlan[] }>('/ado/testplans', signal),
         analytics: async (planId: number, suiteId: number | null, signal: AbortSignal, tester?: string) => {

@@ -49,3 +49,20 @@ covering both. Confirm repeat event today, distinct point unchanged, performer d
 from assignee where appropriate. Compare result IDs and links in ADO.
 Limitations: current assignments are not historical assignments; retained results
 cannot recover overwritten retries/deleted points. Corporate integration unvalidated.
+
+## Gate D — reproducible report drafts and outputs
+
+Implemented shared DSR/TCR evidence drafts, narrative/exclusions, current-state vs
+period labeling, daily productivity/trend sections, email-ready summary, XLSX and
+Unicode PDF generation, immutable in-memory evidence snapshots and checksum-checked
+portable JSON bundles. Reimport never establishes trusted provenance. No email/sign-off
+is automatic. No corporate database/schema/infrastructure is provisioned.
+
+Tests: 33 backend tests including workbook XML/formula safety, checksum preservation,
+and PDF font/header checks; client build/lint. PDFsharp is MIT-licensed; its transitive
+PKCS dependency is pinned to Microsoft's patched 10.0.13 release.
+VDI: generate DSR and TCR with explicit period/baseline, compare workbook/PDF/preview,
+download and preserve evidence in approved storage, restart and reimport evidence.
+Limitations: store is local process memory, 60 minutes/25 reports, not approved SQL.
+Past cutoff-state evidence is unavailable, so reports are drafts, never authoritative
+historical DSRs. The R2 discrepancy remains unvalidated. Font availability needs VDI QA.
