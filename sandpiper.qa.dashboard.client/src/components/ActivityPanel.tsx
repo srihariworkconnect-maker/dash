@@ -4,13 +4,16 @@ import type { ReportingContext } from '../app/ReportingContext';
 import DataTable, { type DataRow } from './DataTable';
 
 export default function ActivityPanel({ api, context, mode, snapshot, assignmentSnapshot }: { api: BackendClient; context: ReportingContext; mode: string; snapshot: PlanAnalytics; assignmentSnapshot: PlanAnalytics }) {
-    const [request, setRequest] = useState(0);
+    const [refresh, setRefresh] = useState(0);
     const [data, setData] = useState<ExecutionIntelligence | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [detail, setDetail] = useState<DataRow | null>(null);
     const [quality, setQuality] = useState<QualityEvidence | null>(null);
+    const ready = Boolean(context.planId && context.from && context.to && context.baselineFrom);
+    // Auto-load retained history once scope and an explicit baseline are set; the caller remounts
+    // this panel on context change, so a given selection fetches once. The button bumps `refresh`.
     useEffect(() => {
-        if (!request || !context.planId) return;
+        if (!ready || !context.planId) return;
         const controller = new AbortController();
         void (async () => {
             if (mode === 'Productivity Tracker') {
@@ -23,8 +26,8 @@ export default function ActivityPanel({ api, context, mode, snapshot, assignment
             .then(result => { if (!controller.signal.aborted) setData(result); })
             .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'History unavailable'); });
         return () => controller.abort();
-    }, [api, context, request, mode]);
-    const load = () => { setData(null); setQuality(null); setError(null); setRequest(r => r + 1); };
+    }, [api, context, mode, ready, refresh]);
+    const load = () => { setData(null); setQuality(null); setError(null); setRefresh(r => r + 1); };
     const activityPoints = new Map(data?.points.map(p => [p.pointId, p]) ?? []);
     const suiteScope = new Set(context.suiteId == null ? snapshot.suites.map(s => s.suiteId) : [context.suiteId]);
     let expanded = true;
@@ -44,7 +47,7 @@ export default function ActivityPanel({ api, context, mode, snapshot, assignment
         {!context.baselineFrom && <p>Choose the baseline start in the global toolbar to enable activity calculations.</p>}
         <h3>Current assignments · includes testers without period executions</h3><DataTable name="current assignment roster" rows={assignments}
             columns={[{ key: 'tester', label: 'Assigned tester' }, { key: 'assignedNow', label: 'Assigned now' }, { key: 'pendingNow', label: 'Pending assigned now' }]} />
-        {request > 0 && !data && !error && <p role="status">Reading paginated result records…</p>}
+        {ready && !data && !error && <p role="status">Reading paginated result records…</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {data && <><div className="compact-kpis">{[['Re-executed test cases in baseline', data.caseRetesting?.reExecutedTestCases ?? 'Incomplete / unavailable'], ['Re-executed points in baseline', data.reExecutedPoints ?? 'Incomplete'],
             ['Repeat events in period', data.repeatEvents], ['Unique points in period', data.uniquePoints],

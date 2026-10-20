@@ -82,15 +82,23 @@ displays its values without recalculation. Rule version: `2026-10-19.1`.
 
 Current explicit policy for less common outcomes retains terminal inconclusive,
 timeout, aborted and error outcomes in Executed, each visible separately. Paused and
-in-progress are not executed. None, active and notExecuted are pending. Missing,
-unspecified, warning, notImpacted and unfamiliar outcomes are unknown/unclassified
-for completion; the original raw category counts remain visible. This policy is
-documented, not a claim of verified equality with every ADO chart.
+in-progress are not executed. None, active and notExecuted are pending. An
+unspecified or absent (missing/null) outcome with no recorded completed result is a
+not-run point and also counts as Pending (confirmed 2026-10-20): the ADO testplan
+TestPoint API reports un-run points with these values, so leaving ~hundreds of points
+out of both Executed and Pending previously misrepresented progress. Warning,
+notImpacted and unfamiliar outcomes, malformed non-string outcome payloads, and any
+point that carries completed-result evidence but no terminal outcome remain
+unknown/unclassified; they are never silently counted as Pending or Executed. The
+original raw category counts remain visible. This policy is documented, not a claim of
+verified equality with every ADO chart, and live reconciliation is still required.
 
 - Executed = passed + failed + blocked + N/A + other terminal outcomes above.
 - Applicable = distinct total - N/A.
 - ExecutedApplicable = Executed - N/A.
 - Progress = ExecutedApplicable / Applicable.
+- Total reconciles exactly: Total = Executed + Pending + InProgress + Unknown, and
+  each point is assigned to one and only one of those buckets.
 - Primary and secondary pass rates follow the agreed formulas above.
 - Zero denominators return null and the UI displays N/A.
 - Duplicate points with matching outcomes count once. Conflicting duplicate
@@ -103,6 +111,25 @@ documented, not a claim of verified equality with every ADO chart.
 - History is filtered by result completion time, not the run's start time.
 - Current scope membership is used. Baseline/deleted-point reconstruction and a
   fully persisted DSR/TCR reporting history are still pending.
+
+## Release readiness
+
+Readiness is an explainable, configurable RAG indicator bound from the `QualityRules`
+configuration section. It is shipped disabled (`Enabled = false`) because corporate
+release-gate thresholds are not yet approved; while disabled it always reports
+"Not assessed — approved release-gate thresholds are not configured" and never applies
+a gate. When enabled with approved thresholds (MinimumProgress, MinimumPrimaryPass,
+MaximumOpenLinkedDefects) it evaluates execution coverage, primary pass rate, open
+result-linked defects and blocked points:
+
+- Green: all indicators met and no blocked points.
+- Red: primary pass below threshold or open linked defects above threshold.
+- Amber: any other shortfall (for example coverage below threshold or blocked points present).
+- Cannot assess: enabled but mandatory evidence is incomplete (defect links withheld,
+  unclassified outcomes present, zero denominators, or incomplete history).
+
+Every outcome lists the specific reasons with actual values versus thresholds, and no
+automatic sign-off is performed — human review is always required.
 
 ## Required validation before release
 

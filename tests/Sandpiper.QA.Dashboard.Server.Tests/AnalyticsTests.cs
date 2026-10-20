@@ -59,6 +59,32 @@ public class AnalyticsTests
         Assert.Null(na.ExecutionRate);
     }
 
+    [Fact]
+    public void TotalReconcilesAndUnrunPointsArePending()
+    {
+        var metrics = KpiCalculator.Calculate([
+            new(1, "passed"), new(2, "failed"), new(3, "blocked"), new(4, "notApplicable"),
+            new(5, "none"), new(6, "notExecuted"), new(7, "unspecified"), new(8, null),
+            new(9, "inProgress"), new(10, "warning")]);
+        Assert.Equal(4, metrics.Executed);
+        Assert.Equal(4, metrics.Pending);
+        Assert.Equal(1, metrics.InProgress);
+        Assert.Equal(1, metrics.Unknown);
+        Assert.Equal(metrics.Total, metrics.Executed + metrics.Pending + metrics.InProgress + metrics.Unknown);
+        Assert.Equal(metrics.Total, metrics.Statuses.Values.Sum());
+    }
+
+    [Fact]
+    public void BlockedAndNaAreExecutedButExcludedFromApplicableProgress()
+    {
+        var metrics = KpiCalculator.Calculate([new(1, "passed"), new(2, "blocked"), new(3, "notApplicable"), new(4, "none")]);
+        Assert.Equal(3, metrics.Executed);       // passed + blocked + N/A
+        Assert.Equal(3, metrics.Applicable);      // total - N/A
+        Assert.Equal(2, metrics.ExecutedApplicable); // executed - N/A
+        Assert.Equal(Math.Round(100d * 2 / 3, 4), metrics.ExecutionRate);
+        Assert.Equal(1, metrics.Pending);
+    }
+
     private static readonly DateTimeOffset Start = DateTimeOffset.Parse("2026-10-18T17:00:00Z");
     private static readonly ReportingWindow Window = new(Start, Start.AddDays(1));
 

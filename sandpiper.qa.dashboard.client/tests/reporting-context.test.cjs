@@ -19,7 +19,9 @@ test('TCM keeps point and case identities and does not invent history', () => {
 });
 test('KPI drill-through includes each approved denominator category without reclassifying unknowns', () => {
     assert.equal(matchesOutcome('active', 'pending'), true);
-    assert.equal(matchesOutcome('unspecified', 'pending'), false);
+    assert.equal(matchesOutcome('unspecified', 'pending'), true);
+    assert.equal(matchesOutcome('missing', 'pending'), true);
+    assert.equal(matchesOutcome('warning', 'pending'), false);
     assert.equal(matchesOutcome('notApplicable', 'executed'), true);
     assert.equal(matchesOutcome('notApplicable', 'applicable'), false);
     assert.equal(matchesOutcome('blocked', 'secondary'), true);

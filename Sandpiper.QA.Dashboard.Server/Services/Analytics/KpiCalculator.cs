@@ -36,17 +36,37 @@ public static class KpiCalculator
         var failed = statuses["failed"];
         var blocked = statuses["blocked"];
         var na = statuses["notapplicable"];
-        var pending = statuses["none"] + statuses["active"] + statuses["notexecuted"];
         var inProgress = statuses["inprogress"] + statuses["paused"];
         var executed = statuses.Where(pair => Terminal.Contains(pair.Key)).Sum(pair => pair.Value);
         var otherCompleted = executed - passed - failed - blocked - na;
-        var unknown = unique.Count - executed - pending - inProgress;
+        var pending = unique.Values.Count(IsNotExecuted);
+        var unknown = unique.Count - executed - inProgress - pending;
         var applicable = unique.Count - na;
         var executedApplicable = executed - na;
         return new(unique.Count, passed, failed, blocked, pending, na, inProgress,
             otherCompleted, unknown, executed, applicable, executedApplicable,
             Rate(executedApplicable, applicable), Rate(passed, executed),
             Rate(passed, passed + failed + blocked), statuses);
+    }
+
+    // A point is "pending" (not executed) when Azure DevOps reports a recognised not-run
+    // outcome, or an unspecified/absent outcome with no recorded completed result. Malformed
+    // outcome payloads (non-string JSON), and points that carry completed-result evidence
+    // without a terminal outcome, stay "unknown" so genuinely unclassifiable source data is
+    // never silently presented as Pending.
+    private static bool IsNotExecuted(TestPointSnapshot point)
+    {
+        var key = Normalize(point.Outcome);
+        if (key is "none" or "active" or "notexecuted") return true;
+        if (key is not ("unspecified" or "missing")) return false;
+        if (point is NormalizedPoint detailed)
+        {
+            if (detailed.OutcomeJsonType is not ("String" or "Null" or "Missing")) return false;
+            if (detailed.LatestResultId is > 0 || detailed.LatestExecutionDate is not null ||
+                string.Equals(detailed.ResultState, "completed", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        return true;
     }
 
     private static double? Rate(int numerator, int denominator) =>

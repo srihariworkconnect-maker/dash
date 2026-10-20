@@ -41,6 +41,7 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
     const [statusFilter, setStatusFilter] = useState('');
     const [detail, setDetail] = useState<DataRow | null>(null);
     const [evidence, setEvidence] = useState<{ scope: string; value: WorkspaceEvidence } | null>(null);
+    const [evidenceError, setEvidenceError] = useState<{ scope: string; message: string } | null>(null);
     const [cutoff, setCutoff] = useState<string | null>(null);
     useEffect(() => {
         const c = new AbortController();
@@ -77,12 +78,12 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
         if (context.preset === 'Custom Range' || context.preset === 'Release-to-Date') return;
         const controller = new AbortController();
         void api.period(context.preset, controller.signal).then(window => {
-            if (!controller.signal.aborted) setContext(c => ({ ...c, ...window }));
+            if (!controller.signal.aborted) setContext(c => ({ ...c, ...window, baselineFrom: c.baselineFrom || window.from }));
         }).catch(cause => { if (!controller.signal.aborted) setError(errorText(cause)); });
         return () => controller.abort();
     }, [api, context.preset]);
     useEffect(() => {
-        const handler = () => { void api.refresh(new AbortController().signal).then(() => { setSnapshot(null); setEvidence(null); setRefresh(r => r + 1); }).catch(e => setError(errorText(e))); };
+        const handler = () => { void api.refresh(new AbortController().signal).then(() => { setSnapshot(null); setEvidence(null); setEvidenceError(null); setRefresh(r => r + 1); }).catch(e => setError(errorText(e))); };
         window.addEventListener('ado-widget-refresh', handler);
         return () => window.removeEventListener('ado-widget-refresh', handler);
     }, [api]);
@@ -91,6 +92,10 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
     for (const event of evidence?.value.snapshot.planId === context.planId ? evidence.value.activity.events : []) if (event.performer) testers.set(event.performer.key, event.performer);
     const m = snapshot?.metrics;
     const scopedEvidence = evidence?.scope === JSON.stringify(context) ? evidence.value : null;
+    const scopedEvidenceError = evidenceError?.scope === JSON.stringify(context) ? evidenceError.message : null;
+    const evidenceReady = Boolean(context.planId && context.from && context.to && context.baselineFrom);
+    const evidenceCell = (value: number | string | null | undefined, unavailableLabel: string): number | string =>
+        scopedEvidence ? (value ?? unavailableLabel) : scopedEvidenceError ? 'Unavailable' : evidenceReady ? 'Loading…' : 'Set baseline';
     const rows = pointRows(snapshot?.points ?? [], selectedPlan?.name ?? '').map(row => {
         if (!scopedEvidence) return row;
         const activity = scopedEvidence.activity.points.find(p => p.pointId === row.pointId);
@@ -130,7 +135,7 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
                     ...(e.target.value === 'Release-to-Date' ? { from: context.baselineFrom, to: new Date().toISOString() } : {}) })}>
                     {['Today', 'Yesterday', 'Last 7 Days', 'Custom Range', 'Release-to-Date'].map(p => <option key={p}>{p}</option>)}</select>
                     <small>{cutoff ?? 'Configured'} UK cutoff · Europe/London</small></label>
-                <button className="primary-button" onClick={() => { void api.refresh(new AbortController().signal).then(() => { invalidate(); setEvidence(null); setRefresh(r => r + 1); }).catch(e => setError(errorText(e))); }}>↻ Refresh</button></div>
+                <button className="primary-button" onClick={() => { void api.refresh(new AbortController().signal).then(() => { invalidate(); setEvidence(null); setEvidenceError(null); setRefresh(r => r + 1); }).catch(e => setError(errorText(e))); }}>↻ Refresh</button></div>
             <div className="period-fields"><label>From (inclusive, ISO offset)<input value={context.from} onChange={e => setContext({ ...context, preset: 'Custom Range', from: e.target.value })} /></label>
                 <label>To (exclusive, ISO offset)<input value={context.to} onChange={e => setContext({ ...context, preset: 'Custom Range', to: e.target.value })} /></label>
                 <label>Repeat baseline start<input value={context.baselineFrom} placeholder="Explicit baseline, ISO offset" onChange={e => setContext({ ...context, baselineFrom: e.target.value })} /></label></div>
@@ -140,17 +145,39 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
             {error && <p role="alert" className="error">{error} <button onClick={() => setRefresh(r => r + 1)}>Retry</button></p>}
             {!snapshot && !error && <div className="empty-state" role="status">Loading authorized Azure DevOps scope…</div>}
             {snapshot && m && module === 'Overview' && <>
+<<<<<<< HEAD
                 <h2>Current execution snapshot</h2>
                 <OverviewKpis key={`overview-kpis:${JSON.stringify(context)}:${refresh}`} api={api} context={context} snapshot={snapshot} evidence={scopedEvidence}
                     onLoaded={value => setEvidence({ scope: JSON.stringify(context), value })} drill={drill} />
+=======
+                <h2>Current execution snapshot</h2><div className="compact-kpis">{[
+                    ['Total test points', m.total, ''], ['Passed', m.passed, 'passed'], ['Failed', m.failed, 'failed'], ['Blocked', m.blocked, 'blocked'], ['Pending', m.pending, 'pending'], ['Not applicable', m.notApplicable, 'notapplicable'],
+                    ['Executed', m.executed, 'executed'], ['Execution', percent(m.executionRate), 'applicable'], ['Primary pass', percent(m.primaryPassRate), 'executed'], ['Secondary pass', percent(m.secondaryPassRate), 'secondary'],
+                    ['Re-executed points', evidenceCell(scopedEvidence?.activity.reExecutedPoints, 'Incomplete'), ''], ['Open defects', evidenceCell(scopedEvidence?.quality.openLinkedDefects, scopedEvidence?.quality.available ? 'Withheld' : 'Unavailable'), ''], ['Release readiness', evidenceCell(scopedEvidence?.quality.releaseReadiness, 'Not assessed'), ''],
+                ].map(([label, value, status]) => <button className={`compact-kpi status-${status}`} key={label} onClick={() => label === 'Open defects' || label === 'Release readiness' ? changeModule('Quality Intelligence') : label === 'Re-executed points' ? changeModule('Execution Intelligence') : drill(String(status))}>
+                    <small>{label}</small><b>{value}</b><span>View evidence →</span></button>)}</div>
+>>>>>>> 62584ab (WIP: SAve dashboard fixes before pull)
                 <div className="panel-grid"><section className="cc-panel"><h3>Outcome distribution · current state</h3>{Object.entries(m.statuses).filter(([, count]) => count > 0).map(([status, count]) => <button className="distribution-row" key={status} onClick={() => drill(status)}>
                     <span>{status}</span><span className="bar-track"><span style={{ width: `${m.total ? count / m.total * 100 : 0}%` }} /></span><b>{count}</b></button>)}</section>
                     <section className="cc-panel"><h3>Suite progress · own and subtree</h3><DataTable name="suite progress" rows={suiteRows(snapshot)} columns={[
                         { key: 'name', label: 'Suite' }, { key: 'own', label: 'Own points' }, { key: 'subtree', label: 'Subtree points' }, { key: 'blocked', label: 'Blocked' }, { key: 'progress', label: 'Progress %' },
                     ]} onSelect={row => { invalidate(); setContext({ ...context, suiteId: Number(row.key) }); }} /></section></div>
+<<<<<<< HEAD
                 <p className="definition">Primary = Passed / Executed (includes blocked and N/A). Secondary = Passed / (Passed + Failed + Blocked). Progress excludes N/A from applicable scope. Unknown outcomes are not silently executed.</p>
 
                 {scopedEvidence && <details className="cc-panel overview-details"><summary>Period trends, tester activity and quality evidence</summary><h3>Period activity · separate from current outcomes</h3>
+=======
+                <p className="definition">
+                    Execution coverage = (Executed − N/A) / (Total − N/A) = {m.executedApplicable} / {m.applicable} = {percent(m.executionRate)}.&nbsp;
+                    Primary pass = Passed / Executed = {m.passed} / {m.executed} = {percent(m.primaryPassRate)} (Executed includes Blocked and N/A).&nbsp;
+                    Secondary pass = Passed / (Passed + Failed + Blocked) = {m.passed} / {m.passed + m.failed + m.blocked} = {percent(m.secondaryPassRate)} (excludes N/A and Pending).&nbsp;
+                    Total {m.total} = Passed {m.passed} + Failed {m.failed} + Blocked {m.blocked} + N/A {m.notApplicable} + Other terminal {m.otherCompleted} + Pending {m.pending} + In progress {m.inProgress} + Unknown {m.unknown}. Unknown outcomes are never counted as Executed or Pending.
+                </p>
+                <QualityPanel key={`overview:${JSON.stringify(context)}`} api={api} context={context} compact autoLoad
+                    onLoaded={value => { setEvidence({ scope: JSON.stringify(context), value }); setEvidenceError(null); }}
+                    onError={message => setEvidenceError({ scope: JSON.stringify(context), message })} />
+                {scopedEvidence && <><h3>Period activity · separate from current outcomes</h3>
+>>>>>>> 62584ab (WIP: SAve dashboard fixes before pull)
                     <DataTable name="overview daily trends" rows={scopedEvidence.activity.daily.map(d => ({ ...d }))}
                         columns={['day', 'executionEvents', 'uniquePoints', 'repeatEvents', 'passed', 'failed', 'blocked'].map(key => ({ key, label: key }))} onSelect={() => changeModule('Execution Intelligence')} />
                     <h3>Tester activity summary</h3><DataTable name="overview tester activity" rows={scopedEvidence.activity.productivity.map(p => ({ ...p }))}
@@ -165,7 +192,9 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
                 ]} onSelect={row => { invalidate(); setContext({ ...context, suiteId: Number(row.id) }); }} /></section><section className="cc-panel full-width"><h2>Test cases in selected scope</h2>
                     <DataTable name="explorer cases" rows={rows} columns={linkedColumns} onSelect={setDetail} /></section></div>}
             {snapshot && module === 'Live TCM' && <section className="cc-panel"><div className="section-title"><h2>Live Test Case Matrix</h2><span>Read-only ADO source records</span></div>
-                <QualityPanel key={`enrichment:${JSON.stringify(context)}`} api={api} context={context} compact onLoaded={value => setEvidence({ scope: JSON.stringify(context), value })} />
+                <QualityPanel key={`enrichment:${JSON.stringify(context)}`} api={api} context={context} compact autoLoad
+                    onLoaded={value => { setEvidence({ scope: JSON.stringify(context), value }); setEvidenceError(null); }}
+                    onError={message => setEvidenceError({ scope: JSON.stringify(context), message })} />
                 {statusFilter && <p>Outcome filter: {statusFilter} <button onClick={() => setStatusFilter('')}>Clear</button></p>}
                 <p className="definition">Point identity includes configuration and suite membership. Latest outcomes do not represent period execution counts. Unavailable enrichment is never shown as zero.</p>
                 <DataTable name="Live TCM" rows={displayed} columns={linkedColumns} onSelect={setDetail} /></section>}
@@ -175,7 +204,9 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
             {['Settings', 'Audit History'].includes(module) && <OperationsPanel key={module} api={api} mode={module} snapshot={snapshot} context={context} />}
             {snapshot && ['Productivity Tracker', 'Execution Intelligence'].includes(module) && <ActivityPanel key={JSON.stringify(context)} api={api} context={context} snapshot={catalog ?? snapshot} assignmentSnapshot={snapshot} mode={module} />}
             {snapshot && ['DSR Center', 'TCR Center'].includes(module) && <ReportPanel key={`${module}:${JSON.stringify(context)}`} api={api} context={context} kind={module === 'DSR Center' ? 'DSR' : 'TCR'} />}
-            {snapshot && module === 'Quality Intelligence' && <><QualityPanel key={`quality:${JSON.stringify(context)}`} api={api} context={context} onLoaded={value => setEvidence({ scope: JSON.stringify(context), value })} />
+            {snapshot && module === 'Quality Intelligence' && <><QualityPanel key={`quality:${JSON.stringify(context)}`} api={api} context={context} autoLoad
+                onLoaded={value => { setEvidence({ scope: JSON.stringify(context), value }); setEvidenceError(null); }}
+                onError={message => setEvidenceError({ scope: JSON.stringify(context), message })} />
                 <section className="cc-panel"><h2>Blocked suites / current risk hotspots</h2><DataTable name="blocked suites" rows={suiteRows(snapshot).filter(s => (s.blocked ?? 0) > 0)}
                     columns={['name', 'own', 'subtree', 'blocked', 'progress'].map(key => ({ key, label: key }))} /></section>
                 <ComparisonPanel api={api} plans={plans} planId={context.planId!} /></>}

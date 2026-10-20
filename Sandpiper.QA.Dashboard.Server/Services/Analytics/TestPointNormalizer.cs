@@ -47,7 +47,7 @@ public static class TestPointNormalizer
         return new(true, "Awaiting VDI / ADO Progress Report reconciliation", unspecified, missing, unsupported,
             points.Count(p => p.TestCaseId == null), points.GroupBy(p => p.OutcomeJsonType).ToDictionary(g => g.Key, g => g.Count()),
             ["Collection completeness is not corporate validation.",
-             "Unspecified, missing and unsupported outcomes are not converted to Pending.",
+             "Un-run points (none/active/notExecuted, or unspecified/absent outcome with no completed result) count as Pending; malformed outcome payloads and points carrying completed-result evidence without a terminal outcome remain Unknown.",
              "Current-state scope is not a historical cutoff snapshot. No authoritative DSR/TCR without preserved evidence."]);
     }
 

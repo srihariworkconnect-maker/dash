@@ -12,7 +12,7 @@ export function changePlan(context: ReportingContext, planId: number): Reporting
 export function matchesOutcome(outcome: string, group: string): boolean {
     const status = outcome.trim().toLowerCase();
     if (!group) return true;
-    if (group === 'pending') return ['none', 'active', 'notexecuted'].includes(status);
+    if (group === 'pending') return ['none', 'active', 'notexecuted', 'unspecified', 'missing'].includes(status);
     if (group === 'executed') return ['passed', 'failed', 'blocked', 'notapplicable', 'inconclusive', 'timeout', 'aborted', 'error'].includes(status);
     if (group === 'applicable') return status !== 'notapplicable';
     if (group === 'secondary') return ['passed', 'failed', 'blocked'].includes(status);
