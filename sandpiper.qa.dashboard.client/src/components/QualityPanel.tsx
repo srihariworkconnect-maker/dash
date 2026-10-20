@@ -31,14 +31,9 @@ export default function QualityPanel({ api, context, onLoaded, onError, autoLoad
         <button className="primary-button" disabled={!ready}
             onClick={() => { setData(null); setError(null); setRefresh(t => t + 1); }}>{autoLoad ? 'Refresh evidence' : 'Inspect schema and load evidence'}</button></div>
         <p className="definition">Reads actual WIT fields, Bug states/categories and requirement categories before interpretation.
-<<<<<<< HEAD
             Defect scope uses inspected case relationships and result-level Bug links. Verification still requires result-level evidence. Set an explicit baseline to enable.</p>
-        {trigger > 0 && !data && !error && <p role="status">Inspecting process metadata and reading result/work-item evidence…</p>}
-=======
-            Defects are linked at run/result level. Set an explicit baseline to enable. No workflow state names or verification outcomes are fabricated.</p>
         {!ready && <p role="status">Set a reporting window and an explicit baseline to load historical evidence.</p>}
         {shouldLoad && !data && !error && <p role="status">Inspecting process metadata and reading result/work-item evidence…</p>}
->>>>>>> 62584ab (WIP: SAve dashboard fixes before pull)
         {error && <p className="error" role="alert">{error}</p>}
         {q && <><p className={q.available ? 'trust-banner' : 'error'}>{q.schemaStatus}</p>
             {!q.relationshipsComplete && <p className="error">History or case/result Bug relationships are incomplete. Scoped defect totals are withheld.</p>}

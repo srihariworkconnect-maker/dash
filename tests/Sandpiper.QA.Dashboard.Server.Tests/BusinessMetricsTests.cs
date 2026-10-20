@@ -35,9 +35,23 @@ public class BusinessMetricsTests
     }
 
     [Fact]
-    public void UnspecifiedOutcomeDoesNotClaimZeroExecutedCasesOrZeroHistoricalRepeats()
+    public void UnspecifiedWithoutResultEvidenceUsesDocumentedPendingPolicy()
     {
         var point = Point(1, 10, "unspecified");
+        var metrics = CaseCalculator.Current([point]);
+        Assert.Equal(1, metrics.TotalTestCases);
+        Assert.Equal(0, metrics.ExecutedTestCases);
+        Assert.Equal(0d, metrics.ExecutionCoverage);
+        Assert.Equal(0, metrics.UnclassifiedCases);
+        var history = ExecutionCalculator.Calculate([], [point], new(Start, Start.AddDays(1)), Start);
+        Assert.True(history.Complete);
+        Assert.Equal(0, history.CaseRetesting!.ReExecutedTestCases);
+    }
+
+    [Fact]
+    public void UnspecifiedWithResultEvidenceDoesNotClaimZeroExecutedCasesOrZeroHistoricalRepeats()
+    {
+        var point = Point(1, 10, "unspecified") with { LatestResultId = 7 };
         var metrics = CaseCalculator.Current([point]); Assert.Equal(1, metrics.TotalTestCases);
         Assert.Null(metrics.ExecutedTestCases); Assert.Null(metrics.ExecutionCoverage); Assert.Equal(1, metrics.UnclassifiedCases);
         var history = ExecutionCalculator.Calculate([], [point], new(Start, Start.AddDays(1)), Start);

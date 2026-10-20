@@ -23,7 +23,7 @@ public class ReadinessTests
     {
         var (snapshot, activity) = Scope(Enumerable.Range(1, 100).Select(i => new TestPointSnapshot(i, "passed")));
         var result = QualityCalculator.Assess(snapshot, activity, Quality(0), new() { Enabled = false });
-        Assert.StartsWith("Not assessed", result.ReleaseReadiness);
+        Assert.StartsWith("Not Assessed", result.ReleaseReadiness);
     }
 
     [Fact]

@@ -21,7 +21,7 @@ public static class QualityCalculator
         if (!rules.Enabled)
         {
             // Never silently enable an unapproved release gate. Readiness stays "Not assessed".
-            readiness = "Not assessed — approved release-gate thresholds are not configured";
+            readiness = "Not Assessed — approved release-gate thresholds are not configured";
             reasons.Add("Release-gate thresholds are disabled (QualityRules.Enabled = false). Configure and approve " +
                 "coverage, pass-rate and open-defect thresholds before an automatic Green/Amber/Red gate is shown.");
         }
