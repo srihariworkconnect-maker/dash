@@ -37,15 +37,16 @@ public sealed class ReportStore
         JsonSerializer.SerializeToUtf8Bytes(report with { Checksum = "" }, Json)));
 }
 
-public sealed class ReportService(FrontierAnalyticsService analytics, ExecutionHistoryService history, ReportStore store)
+public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceEvidenceService evidence, ReportStore store)
 {
     public async Task<ReportSnapshot> CreateAsync(ReportRequest request, CancellationToken ct)
     {
         if (request.Kind is not ("DSR" or "TCR")) throw new ArgumentException("Choose DSR or TCR.");
         var window = ReportingScope.Window(request.From, request.To);
         var baseline = ReportingScope.Instant(request.BaselineFrom);
-        var current = await analytics.GetAnalyticsAsync(request.PlanId, ct, request.SuiteId, request.Tester);
-        var activity = await history.ActivityAsync(request.PlanId, request.SuiteId, window, baseline, request.Tester, ct);
+        var bundle = await evidence.LoadAsync(request.PlanId, request.SuiteId, window, baseline, request.Tester, ct);
+        var current = string.IsNullOrEmpty(request.Tester) ? bundle.Snapshot : await analytics.GetAnalyticsAsync(request.PlanId, ct, request.SuiteId, request.Tester);
+        var activity = bundle.Activity;
         var narrative = (request.Narrative ?? []).Where(p => p.Key.Length <= 60).ToDictionary(p => p.Key, p => p.Value.Length <= 4000 ? p.Value : p.Value[..4000]);
         var report = new ReportSnapshot(Guid.NewGuid(), request.Kind, DateTimeOffset.UtcNow, "v2-2026-10-20.1",
             "Draft — awaiting corporate reconciliation and historical cutoff evidence", "Local ADO collection", "", current, activity, narrative,
@@ -54,7 +55,8 @@ public sealed class ReportService(FrontierAnalyticsService analytics, ExecutionH
              "Evidence bundle checksum detects changes; it is not a digital signature or corporate approval.",
              "Reports are held in memory for 60 minutes / at most 25 reports. Export the evidence bundle to approved storage.",
              "No report is emailed, release signed off, or infrastructure provisioned automatically.",
-             "Defect, coverage and verification evidence may be unavailable and is not reported as zero."]);
+             "Defect, coverage and verification evidence may be unavailable and is not reported as zero."])
+            { Quality = bundle.Quality };
         return store.Put(report with { Checksum = ReportStore.Hash(report) });
     }
 
@@ -93,8 +95,17 @@ public sealed class ReportService(FrontierAnalyticsService analytics, ExecutionH
                 r.Activity.Productivity.Select(p => new string?[] { p.Tester, p.Day, S(p.AssignedPoints), S(p.PendingAssigned), S(p.ExecutionEvents), S(p.UniquePoints), S(p.Passed), S(p.Failed), S(p.Blocked), S(p.RepeatEvents), S(p.ReExecutedPoints) }).ToList()),
             new("Daily trend", ["UK day", "Execution events", "Unique points", "Repeat events", "Passed", "Failed", "Blocked"],
                 r.Activity.Daily.Select(d => new string?[] { d.Day, S(d.ExecutionEvents), S(d.UniquePoints), S(d.RepeatEvents), S(d.Passed), S(d.Failed), S(d.Blocked) }).ToList()),
-            new("Defects and risks", ["Section", "Evidence"], [["Defect verification", "Requires result-level links, work-item schema and chronology evidence"],
-                ["Historical cutoff snapshot", "Unavailable — current collection state shown separately"], ["Sign-off", "Human decision required; no automatic release approval"]])
+            new("Defects and risks", ["Section", "Evidence"], [["Schema", r.Quality?.SchemaStatus ?? "Unavailable"],
+                ["Open linked defects", S(r.Quality?.OpenLinkedDefects)], ["Requirement gaps", S(r.Quality?.RequirementGaps)],
+                ["Readiness", r.Quality?.ReleaseReadiness ?? "Not assessed"],
+                ["Historical cutoff snapshot", "Unavailable — current collection state shown separately"], ["Sign-off", "Human decision required; no automatic release approval"],
+                ..(r.Quality?.RiskReasons ?? []).Select(reason => new string?[] { "Risk", reason })]),
+            new("Defect queue", ["Bug ID", "Title", "Created By", "Created UTC", "Assigned", "State", "Severity", "Priority", "Verification", "Retested By", "Retested UTC", "Outcome", "Evidence"],
+                r.Quality?.Defects.Select(b => new string?[] { S(b.BugId), b.Title, b.CreatedBy?.DisplayName, b.CreatedAt?.ToString("O"), b.AssignedTo?.DisplayName,
+                    b.State, b.Severity, b.Priority, b.VerificationStatus, b.RetestedBy?.DisplayName, b.RetestedAt?.ToString("O"), b.VerificationOutcome,
+                    string.Join("; ", b.VerificationEvidence) }).ToList() ?? []),
+            new("Bug activity", ["Created By / actor", "Raised", "Resolved", "Reopened", "Verified with evidence", "Verification attempts"],
+                r.Quality?.BugActivity.Select(b => new string?[] { b.Tester, S(b.Raised), S(b.Resolved), S(b.Reopened), S(b.VerifiedWithEvidence), S(b.VerificationAttempts) }).ToList() ?? [])
         ];
     }
 }

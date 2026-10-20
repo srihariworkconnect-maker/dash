@@ -54,6 +54,13 @@ export default function ReportPanel({ api, context, kind }: { api: BackendClient
                 {' '}{report.narrative['Carry-forward items'] || 'No narrative supplied.'}</p>
             <h3>Defects, coverage and outstanding risks</h3><p>Bug activity, requirement coverage and confirmed verification require additional source evidence.
                 Their absence is not a zero or an approval. {report.narrative['Outstanding risks']}</p>
+            {report.quality && <><p className="trust-banner">{report.quality.schemaStatus}</p><p>Open result-linked defects: {report.quality.openLinkedDefects ?? 'Unavailable'}.
+                Requirement-link gaps: {report.quality.requirementGaps ?? 'Unavailable'}. {report.quality.releaseReadiness}</p>
+                <DataTable name={`${kind} defects`} rows={report.quality.defects.map(b => ({ ...b, key: b.bugId, evidence: b.verificationEvidence.join('; ') }))}
+                    columns={['bugId', 'title', 'state', 'severity', 'priority', 'verificationStatus', 'retestedAt', 'verificationOutcome', 'evidence'].map(key => ({ key, label: key }))} />
+                <DataTable name={`${kind} bug activity`} rows={report.quality.bugActivity.map(b => ({ ...b }))}
+                    columns={['tester', 'raised', 'resolved', 'reopened', 'verifiedWithEvidence', 'verificationAttempts'].map(key => ({ key, label: key }))} />
+            </>}
             <h3>Exclusions and recommendation</h3><p>{report.narrative.Exclusions || 'No exclusions supplied.'}</p><p>{report.narrative['Sign-off recommendation']}</p>
             <details><summary>Data limitations</summary><ul>{report.limitations.map(text => <li key={text}>{text}</li>)}</ul></details>
             <h3>Email-ready summary — draft only</h3><textarea className="email-summary" readOnly value={summary} aria-label="Email-ready report summary" />

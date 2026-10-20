@@ -28,6 +28,9 @@ builder.Services.AddTransient<FrontierAnalyticsService>();
 builder.Services.AddTransient<ExecutionHistoryService>();
 builder.Services.AddSingleton<ReportStore>();
 builder.Services.AddTransient<ReportService>();
+builder.Services.Configure<QualityRules>(builder.Configuration.GetSection("QualityRules"));
+builder.Services.AddTransient<WorkItemEvidenceService>();
+builder.Services.AddTransient<WorkspaceEvidenceService>();
 var origins = builder.Configuration.GetSection("Dashboard:AllowedOrigins").Get<string[]>() ?? [];
 builder.Services.AddCors(options => options.AddPolicy("DashboardClient", policy =>
 {
@@ -125,6 +128,17 @@ app.MapGet("/api/v2/activity/{planId:int}", (int planId, int? suiteId, string fr
     string? tester, ExecutionHistoryService service, CancellationToken ct) =>
     service.ActivityAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));
 app.MapControllers();
+app.MapGet("/api/v2/evidence/{planId:int}", (int planId, int? suiteId, string from, string to, string baselineFrom,
+    string? tester, WorkspaceEvidenceService service, CancellationToken ct) =>
+    service.LoadAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));
+app.MapGet("/api/v2/compare", async (string plans, FrontierAnalyticsService service, CancellationToken ct) =>
+{
+    var ids = plans.Split(',').Select(int.Parse).Distinct().ToArray();
+    if (ids.Length is < 2 or > 5) throw new ArgumentException("Choose two to five plans.");
+    var snapshots = new List<Sandpiper.QA.Dashboard.Server.Models.PlanAnalytics>();
+    foreach (var id in ids) snapshots.Add(await service.GetAnalyticsAsync(id, ct));
+    return new { scope = "Full-plan current state; suite identities need not be comparable. No cross-plan point totals are combined.", snapshots };
+});
 app.MapPost("/api/v2/reports", (Sandpiper.QA.Dashboard.Server.Models.ReportRequest request, ReportService service, CancellationToken ct) => service.CreateAsync(request, ct));
 app.MapGet("/api/v2/reports", (ReportStore store) => store.List());
 app.MapPost("/api/v2/reports/import", (Sandpiper.QA.Dashboard.Server.Models.ReportSnapshot report, ReportService service) => service.Import(report));

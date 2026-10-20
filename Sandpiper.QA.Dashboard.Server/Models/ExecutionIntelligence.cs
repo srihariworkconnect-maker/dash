@@ -3,7 +3,10 @@ namespace Sandpiper.QA.Dashboard.Server.Models;
 public record ExecutionEvent(string Key, int RunId, int ResultId, int? PointId,
     string Outcome, string? State, DateTimeOffset? CompletedAt, SourceIdentity? Performer,
     IReadOnlyList<int> BugIds, string? SourceUrl, bool Qualifies, bool IsRepeat = false,
-    string? Transition = null);
+    string? Transition = null)
+{
+    public bool BugLinksAvailable { get; init; }
+}
 public record TesterActivity(string TesterKey, string Tester, string Day, int AssignedPoints,
     int PendingAssigned, int ExecutionEvents, int UniquePoints, int Passed, int Failed,
     int Blocked, int RepeatEvents, int ReExecutedPoints);

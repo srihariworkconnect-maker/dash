@@ -60,14 +60,14 @@ public sealed class AzureDevOpsClient(HttpClient http, TokenCredential credentia
         finally { gate.Semaphore.Release(); }
     }
 
-    public async Task<List<JsonElement>> ListAsync(string path, CancellationToken ct)
+    public async Task<List<JsonElement>> ListAsync(string path, CancellationToken ct, Dictionary<string, string>? parameters = null)
     {
         List<JsonElement> all = [];
         HashSet<string> seen = [];
         string? token = null;
         for (var page = 0; page < 10000; page++)
         {
-            var query = new Dictionary<string, string>();
+            var query = parameters == null ? new Dictionary<string, string>() : new Dictionary<string, string>(parameters);
             if (token != null) query["continuationToken"] = token;
             var result = await PageAsync(path, query, ct);
             all.AddRange(result.Items);
@@ -79,7 +79,7 @@ public sealed class AzureDevOpsClient(HttpClient http, TokenCredential credentia
     }
 
     public async Task<List<JsonElement>> HistoryAsync(string path,
-        Dictionary<string, string> parameters, CancellationToken ct)
+        Dictionary<string, string> parameters, CancellationToken ct, string identityField = "id")
     {
         Dictionary<int, JsonElement> all = [];
         var skip = 0;
@@ -91,7 +91,7 @@ public sealed class AzureDevOpsClient(HttpClient http, TokenCredential credentia
             var previous = all.Count;
             foreach (var item in result.Items)
             {
-                var id = Number(item, "id");
+                var id = Number(item, identityField);
                 if (id <= 0) throw new InvalidDataException("Invalid history identity.");
                 if (all.TryGetValue(id, out var existing) && existing.GetRawText() != item.GetRawText())
                     throw new InvalidDataException("History changed during pagination; refresh.");

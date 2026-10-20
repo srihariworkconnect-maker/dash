@@ -66,3 +66,27 @@ download and preserve evidence in approved storage, restart and reimport evidenc
 Limitations: store is local process memory, 60 minutes/25 reports, not approved SQL.
 Past cutoff-state evidence is unavailable, so reports are drafts, never authoritative
 historical DSRs. The R2 discrepancy remains unvalidated. Font availability needs VDI QA.
+
+## Gate E — result-level defect and explainable quality evidence
+
+Implemented runtime inspection of WIT fields, Bug state categories, requirement
+categories and relation metadata; point-linked result bugs; revisions paged by rev,
+not repeated work-item ID; Created By/changed actor activity; retest chronology;
+candidate/verified/failed-again/reopened/missing-evidence queue; requirement links,
+attachments and priority enrichment; open linked-defect scope; configurable readiness
+indicators (disabled by default); explicit throughput scenario estimates and cross-plan
+current-state comparison. Missing relationship collections withhold defect totals.
+
+Verification requires linked failure, later resolved revision, later explicitly linked
+pass, known performer, and subsequent same-performer completion revision, without
+contradictory later evidence. A later pass alone stays a candidate. Equal-time evidence
+does not establish verification chronology. All outputs remain corporate-unvalidated.
+
+Tests: evaluator chronology/candidate/readiness cases, forbidden-schema handling,
+runtime metadata inspection, revision identity and existing regressions. VDI: inspect
+your actual Bug metadata, associate bugs at failed-result level, compare revision
+actors/times and later results. Confirm unknown relationships remain unavailable.
+Limitations: no live corporate Bug schema was accessible here. These rules are an
+explicit implementation to validate, not a claim of confirmed workflow integration.
+Forecast scenarios are assumptions, not AI or release approval. Blocker-start aging
+cannot be recovered from current status alone.

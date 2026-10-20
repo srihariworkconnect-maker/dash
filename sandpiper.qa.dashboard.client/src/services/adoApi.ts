@@ -51,7 +51,24 @@ export interface ReportSnapshot {
     id: string; kind: string; createdAt: string; calculationVersion: string; status: string; origin: string;
     checksum: string; currentSnapshot: PlanAnalytics; activity: ExecutionIntelligence;
     narrative: Record<string, string>; limitations: string[];
+    quality?: QualityEvidence;
 }
+export interface DefectEvidence {
+    bugId: number; title: string | null; createdBy: Identity | null; createdAt: string | null;
+    assignedTo: Identity | null; state: string | null; category: string | null; severity: string | null; priority: string | null;
+    revisions: { revision: number; state: string | null; category: string | null; changedAt: string | null; changedBy: Identity | null }[];
+    relatedResults: ExecutionEvent[]; verificationStatus: string; retestedBy: Identity | null; retestedAt: string | null;
+    verificationOutcome: string | null; verificationEvidence: string[]; ageDays: number | null;
+}
+export interface QualityEvidence {
+    available: boolean; schemaStatus: string; retrievedAt: string; inspectedFields: string[];
+    stateCategories: Record<string, string>; relationshipsComplete: boolean;
+    cases: { caseId: number; priority: string | null; requirementIds: number[]; evidenceLinks: string[] }[];
+    defects: DefectEvidence[]; bugActivity: { testerKey: string; tester: string; raised: number; resolved: number; reopened: number; verifiedWithEvidence: number; verificationAttempts: number }[];
+    openLinkedDefects: number | null; requirementGaps: number | null; releaseReadiness: string;
+    riskReasons: string[]; forecast: Record<string, unknown> | null; limitations: string[];
+}
+export interface WorkspaceEvidence { snapshot: PlanAnalytics; activity: ExecutionIntelligence; quality: QualityEvidence; retrievedAt: string }
 export interface ExecutionEvent {
     key: string; runId: number; resultId: number; pointId: number | null; outcome: string;
     state: string | null; completedAt: string | null; performer: Identity | null;
@@ -139,6 +156,13 @@ export function createBackendClient(baseUrl: string) {
     }
     return {
         createReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports', signal, body),
+        evidence: (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal) => {
+            const query = new URLSearchParams({ from, to, baselineFrom });
+            if (suiteId != null) query.set('suiteId', String(suiteId));
+            if (tester) query.set('tester', tester);
+            return get<WorkspaceEvidence>(`/v2/evidence/${planId}?${query}`, signal);
+        },
+        compare: (plans: number[], signal: AbortSignal) => get<{ scope: string; snapshots: PlanAnalytics[] }>(`/v2/compare?plans=${plans.join(',')}`, signal),
         importReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports/import', signal, body),
         reports: (signal: AbortSignal) => get<{ id: string; kind: string; createdAt: string; status: string; planId: number; checksum: string }[]>('/v2/reports', signal),
         report: (id: string, signal: AbortSignal) => get<ReportSnapshot>(`/v2/reports/${encodeURIComponent(id)}`, signal),

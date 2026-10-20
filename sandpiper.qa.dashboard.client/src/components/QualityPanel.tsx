@@ -1,0 +1,52 @@
+import { useEffect, useState } from 'react';
+import type { BackendClient, WorkspaceEvidence } from '../services/adoApi';
+import type { ReportingContext } from '../app/ReportingContext';
+import DataTable, { type DataRow } from './DataTable';
+
+export default function QualityPanel({ api, context, onLoaded, compact = false }: {
+    api: BackendClient; context: ReportingContext; onLoaded?: (value: WorkspaceEvidence) => void; compact?: boolean;
+}) {
+    const [trigger, setTrigger] = useState(0);
+    const [data, setData] = useState<WorkspaceEvidence | null>(null);
+    const [error, setError] = useState<string | null>(null);
+    const [detail, setDetail] = useState<DataRow | null>(null);
+    useEffect(() => {
+        if (!trigger || !context.planId) return;
+        const controller = new AbortController();
+        void api.evidence(context.planId, context.suiteId, context.from, context.to, context.baselineFrom, context.tester, controller.signal)
+            .then(result => { if (!controller.signal.aborted) { setData(result); onLoaded?.(result); } })
+            .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Evidence unavailable'); });
+        return () => controller.abort();
+        // onLoaded is only a result notification, not a query key.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [api, context, trigger]);
+    const q = data?.quality;
+    return <section className="cc-panel"><div className="section-title"><h2>{compact ? 'TCM source enrichment' : 'Quality Intelligence'}</h2>
+        <button className="primary-button" disabled={!context.planId || !context.from || !context.to || !context.baselineFrom}
+            onClick={() => { setData(null); setError(null); setTrigger(t => t + 1); }}>Inspect schema and load evidence</button></div>
+        <p className="definition">Reads actual WIT fields, Bug states/categories and requirement categories before interpretation.
+            Defects are linked at run/result level. Set an explicit baseline to enable. No workflow state names or verification outcomes are fabricated.</p>
+        {trigger > 0 && !data && !error && <p role="status">Inspecting process metadata and reading result/work-item evidence…</p>}
+        {error && <p className="error" role="alert">{error}</p>}
+        {q && <><p className={q.available ? 'trust-banner' : 'error'}>{q.schemaStatus}</p>
+            {!q.relationshipsComplete && <p className="error">Result bug links are incomplete or absent from some source records. Open-defect totals are withheld.</p>}
+            {q.available && !compact && <><div className="compact-kpis">{[['Open linked defects', q.openLinkedDefects ?? 'Unavailable'], ['Requirement-link gaps', q.requirementGaps ?? 'Unavailable'],
+                ['Release readiness', q.releaseReadiness]].map(([label, value]) => <div className="compact-kpi" key={label}><small>{label}</small><b>{value}</b></div>)}</div>
+                <h3>Explainable risk summary</h3><ul>{q.riskReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
+                <h3>Defect state distribution</h3>{[...new Set(q.defects.map(b => b.state ?? 'Unknown'))].map(state => <button key={state} className="distribution-row"
+                    onClick={() => setDetail({ state, bugIds: q.defects.filter(b => (b.state ?? 'Unknown') === state).map(b => b.bugId).join(', ') })}>
+                    <span>{state}</span><b>{q.defects.filter(b => (b.state ?? 'Unknown') === state).length}</b></button>)}
+                <h3>Defect verification queue</h3><DataTable name="defect verification" rows={q.defects.map(b => ({ ...b, key: b.bugId,
+                    createdByName: b.createdBy?.displayName ?? 'Unattributed', assignedName: b.assignedTo?.displayName,
+                    retestedByName: b.retestedBy?.displayName, evidence: b.verificationEvidence.join('; ') }))}
+                    columns={['bugId', 'title', 'state', 'severity', 'priority', 'ageDays', 'verificationStatus', 'createdByName', 'createdAt', 'assignedName', 'retestedByName', 'retestedAt', 'verificationOutcome', 'evidence'].map(key => ({ key, label: key }))} onSelect={setDetail} />
+                <h3>Bug activity · Created By and revision actors</h3><DataTable name="bug activity" rows={q.bugActivity.map(b => ({ ...b, key: b.testerKey }))}
+                    columns={['tester', 'raised', 'resolved', 'reopened', 'verifiedWithEvidence', 'verificationAttempts'].map(key => ({ key, label: key }))} onSelect={setDetail} />
+                <h3>Completion scenarios</h3>{q.forecast ? <pre>{JSON.stringify(q.forecast, null, 2)}</pre> : <p>Unavailable: insufficient validated baseline/throughput evidence. No AI forecast.</p>}
+                <details><summary>Inspected schema and transparent state categories</summary><pre>{JSON.stringify({ fields: q.inspectedFields, states: q.stateCategories }, null, 2)}</pre></details>
+            </>}
+            <details><summary>Evidence limitations</summary><ul>{q.limitations.map(l => <li key={l}>{l}</li>)}</ul></details>
+        </>}
+        {detail && <aside className="detail-panel"><button onClick={() => setDetail(null)}>Close ×</button><h2>Defect / activity evidence</h2><pre>{JSON.stringify(detail, null, 2)}</pre></aside>}
+    </section>;
+}

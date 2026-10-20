@@ -29,7 +29,8 @@ public sealed class ExecutionHistoryService(AzureDevOpsClient ado, FrontierAnaly
                     DateTimeOffset.TryParse(rawDate, System.Globalization.CultureInfo.InvariantCulture,
                         System.Globalization.DateTimeStyles.AssumeUniversal, out var date) ? date.ToUniversalTime() : null,
                     TestPointNormalizer.Identity(result, "runBy"), bugs,
-                    AzureDevOpsClient.Text(result, "url"), ExecutionCalculator.Qualifies(outcome, state)));
+                    AzureDevOpsClient.Text(result, "url"), ExecutionCalculator.Qualifies(outcome, state))
+                    { BugLinksAvailable = result.TryGetProperty("associatedBugs", out var links) && links.ValueKind == JsonValueKind.Array });
             }
         });
         return events.OrderBy(e => e.RunId).ThenBy(e => e.ResultId).ToList();

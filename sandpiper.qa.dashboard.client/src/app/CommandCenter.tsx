@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { buildSuiteTree, type BackendClient, type PlanAnalytics } from '../services/adoApi';
+import { buildSuiteTree, type BackendClient, type PlanAnalytics, type WorkspaceEvidence } from '../services/adoApi';
 import type { AdoTestPlan } from '../types/ado';
 import { initialContext, changePlan, pointRows, suiteRows } from './ReportingContext';
 import DataTable, { type Column, type DataRow } from '../components/DataTable';
 import TestSuiteTree from '../components/TestSuiteTree';
 import ActivityPanel from '../components/ActivityPanel';
 import ReportPanel from '../components/ReportPanel';
+import QualityPanel from '../components/QualityPanel';
+import ComparisonPanel from '../components/ComparisonPanel';
 import '../v2.css';
 
 const modules = ['Overview', 'Test Explorer', 'Live TCM', 'Productivity Tracker', 'DSR Center', 'TCR Center', 'Execution Intelligence', 'Quality Intelligence'];
@@ -35,6 +37,7 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
     const [testerSearch, setTesterSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
     const [detail, setDetail] = useState<DataRow | null>(null);
+    const [evidence, setEvidence] = useState<{ scope: string; value: WorkspaceEvidence } | null>(null);
     useEffect(() => {
         const controller = new AbortController();
         void api.plans(controller.signal).then(data => {
@@ -70,7 +73,20 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
     const selectedPlan = plans.find(p => p.id === context.planId);
     const testers = new Map((catalog?.points ?? []).filter(p => p.assignedTester).map(p => [p.assignedTester!.key, p.assignedTester!]));
     const m = snapshot?.metrics;
-    const rows = pointRows(snapshot?.points ?? [], selectedPlan?.name ?? '');
+    const scopedEvidence = evidence?.scope === JSON.stringify(context) ? evidence.value : null;
+    const rows = pointRows(snapshot?.points ?? [], selectedPlan?.name ?? '').map(row => {
+        if (!scopedEvidence) return row;
+        const activity = scopedEvidence.activity.points.find(p => p.pointId === row.pointId);
+        const testCase = scopedEvidence.quality.cases.find(c => c.caseId === row.caseId);
+        const defects = scopedEvidence.quality.defects.filter(b => b.relatedResults.some(r => r.pointId === row.pointId && r.bugIds.includes(b.bugId)));
+        return { ...row, executionCount: scopedEvidence.activity.complete ? activity?.executionCount ?? 0 : null,
+            repeatCount: scopedEvidence.activity.complete ? activity?.repeatCount ?? 0 : null,
+            bugIds: scopedEvidence.quality.relationshipsComplete ? defects.map(b => b.bugId).join(', ') || 'None linked' : null,
+            bugState: defects.map(b => `${b.bugId}: ${b.state}`).join('; ') || null,
+            bugPriority: defects.map(b => `${b.bugId}: ${b.severity ?? 'Unavailable'} / ${b.priority ?? 'Unavailable'}`).join('; ') || null,
+            priority: testCase?.priority ?? null, requirement: testCase?.requirementIds.join(', ') || null,
+            evidence: testCase?.evidenceLinks.join('; ') || null };
+    });
     const displayed = rows.filter(row => !statusFilter || row.outcome.toLowerCase() === statusFilter);
     const linkedColumns = tcmColumns.map(c => c.key === 'caseId' ? { ...c, render: (row: DataRow) =>
         row.caseId && snapshot?.sourceBaseUrl ? <a href={`${snapshot.sourceBaseUrl}/_workitems/edit/${row.caseId}`} target="_blank" rel="noreferrer">{String(row.caseId)} ↗</a> : 'Unavailable' } : c);
@@ -110,7 +126,7 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
                 <h2>Current execution snapshot</h2><div className="compact-kpis">{[
                     ['Total test points', m.total, ''], ['Passed', m.passed, 'passed'], ['Failed', m.failed, 'failed'], ['Blocked', m.blocked, 'blocked'], ['Pending', m.pending, 'notexecuted'], ['Not applicable', m.notApplicable, 'notapplicable'],
                     ['Executed', m.executed, ''], ['Execution', percent(m.executionRate), ''], ['Primary pass', percent(m.primaryPassRate), ''], ['Secondary pass', percent(m.secondaryPassRate), ''],
-                    ['Re-executed points', 'Load history', ''], ['Open defects', 'Awaiting evidence', ''], ['Release readiness', 'Not assessed', ''],
+                    ['Re-executed points', scopedEvidence?.activity.reExecutedPoints ?? 'Load history', ''], ['Open defects', scopedEvidence?.quality.openLinkedDefects ?? 'Awaiting evidence', ''], ['Release readiness', scopedEvidence?.quality.releaseReadiness ?? 'Not assessed', ''],
                 ].map(([label, value, status]) => <button className={`compact-kpi status-${status}`} key={label} onClick={() => label === 'Open defects' || label === 'Release readiness' ? changeModule('Quality Intelligence') : label === 'Re-executed points' ? changeModule('Execution Intelligence') : drill(String(status))}>
                     <small>{label}</small><b>{value}</b><span>View evidence →</span></button>)}</div>
                 <div className="panel-grid"><section className="cc-panel"><h3>Outcome distribution · current state</h3>{Object.entries(m.statuses).filter(([, count]) => count > 0).map(([status, count]) => <button className="distribution-row" key={status} onClick={() => drill(status)}>
@@ -126,6 +142,7 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
                 ]} onSelect={row => { invalidate(); setContext({ ...context, suiteId: Number(row.id) }); }} /></section><section className="cc-panel full-width"><h2>Test cases in selected scope</h2>
                     <DataTable name="explorer cases" rows={rows} columns={linkedColumns} onSelect={setDetail} /></section></div>}
             {snapshot && module === 'Live TCM' && <section className="cc-panel"><div className="section-title"><h2>Live Test Case Matrix</h2><span>Read-only ADO source records</span></div>
+                <QualityPanel key={`enrichment:${JSON.stringify(context)}`} api={api} context={context} compact onLoaded={value => setEvidence({ scope: JSON.stringify(context), value })} />
                 {statusFilter && <p>Outcome filter: {statusFilter} <button onClick={() => setStatusFilter('')}>Clear</button></p>}
                 <p className="definition">Point identity includes configuration and suite membership. Latest outcomes do not represent period execution counts. Unavailable enrichment is never shown as zero.</p>
                 <DataTable name="Live TCM" rows={displayed} columns={linkedColumns} onSelect={setDetail} /></section>}
@@ -137,7 +154,11 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
                 <p>Enterprise endpoint, database and authentication require AXA approval. The API remains local-development only.</p></section>}
             {snapshot && ['Productivity Tracker', 'Execution Intelligence'].includes(module) && <ActivityPanel key={JSON.stringify(context)} api={api} context={context} mode={module} />}
             {snapshot && ['DSR Center', 'TCR Center'].includes(module) && <ReportPanel key={`${module}:${JSON.stringify(context)}`} api={api} context={context} kind={module === 'DSR Center' ? 'DSR' : 'TCR'} />}
-            {!['Overview', 'Test Explorer', 'Live TCM', 'Data Reconciliation', 'Settings', 'Productivity Tracker', 'Execution Intelligence', 'DSR Center', 'TCR Center'].includes(module) && <section className="cc-panel"><h2>{module}</h2><p>Dependent evidence and services are being added in subsequent gate commits. Unavailable metrics are not zero.</p></section>}
+            {snapshot && module === 'Quality Intelligence' && <><QualityPanel key={`quality:${JSON.stringify(context)}`} api={api} context={context} onLoaded={value => setEvidence({ scope: JSON.stringify(context), value })} />
+                <section className="cc-panel"><h2>Blocked suites / current risk hotspots</h2><DataTable name="blocked suites" rows={suiteRows(snapshot).filter(s => (s.blocked ?? 0) > 0)}
+                    columns={['name', 'own', 'subtree', 'blocked', 'progress'].map(key => ({ key, label: key }))} /></section>
+                <ComparisonPanel api={api} plans={plans} planId={context.planId!} /></>}
+            {!['Overview', 'Test Explorer', 'Live TCM', 'Data Reconciliation', 'Settings', 'Productivity Tracker', 'Execution Intelligence', 'DSR Center', 'TCR Center', 'Quality Intelligence'].includes(module) && <section className="cc-panel"><h2>{module}</h2><p>Dependent evidence and services are being added in subsequent gate commits. Unavailable metrics are not zero.</p></section>}
             {detail && <aside className="detail-panel" aria-label="Record details"><button onClick={() => setDetail(null)}>Close details ×</button><h2>Source record</h2>
                 {Object.entries(detail).map(([key, value]) => <div className="stat-row" key={key}><span>{key}</span><strong>{value == null ? 'Unavailable' : String(value)}</strong></div>)}</aside>}
         </main></div></div>;
