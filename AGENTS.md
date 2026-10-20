@@ -135,6 +135,12 @@ See `docs/reporting-rules.md` for implementation details and unresolved decision
 
 ## Current repository status
 
+The user has authorized V2 Gates A–F sequential implementation and meaningful commits
+and pushes on a dedicated feature branch. Separate design approval per gate is no
+longer required. Do not merge main, deploy, publish extensions or provision corporate
+infrastructure. Preserve explicit awaiting-validation states wherever access is absent.
+No mandatory release mapping: use plan/suite selection and explicit baseline dates.
+
 The local working tree restores the original ASP.NET Core backend, .slnx and .esproj,
 with the React client in its original project folder. Push changes only when the user
 explicitly authorizes publication. Backend calculations now serve the UI and the

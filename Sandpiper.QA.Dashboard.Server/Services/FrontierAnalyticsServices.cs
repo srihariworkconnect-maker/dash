@@ -28,7 +28,10 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
         var metrics = KpiCalculator.Calculate(snapshot.Points.Values.SelectMany(points => points));
         var suites = snapshot.Suites.Select(suite => new SuiteAnalytics(suite.Id, suite.Name,
             suite.ParentId, KpiCalculator.Calculate(snapshot.Points[suite.Id]))).ToList();
-        return new(planId, suiteId, metrics, suites, suites.Count, DateTimeOffset.UtcNow);
+        var points = snapshot.Points.Values.SelectMany(p => p).GroupBy(p => p.Id)
+            .Select(g => g.First() with { Memberships = g.SelectMany(p => p.Memberships).Distinct().ToArray() }).ToArray();
+        return new(planId, suiteId, metrics, suites, suites.Count, DateTimeOffset.UtcNow)
+        { Points = points, Reconciliation = TestPointNormalizer.Reconcile(points) };
     }
 
     public async Task<object> GetReexecutionAsync(int planId, int? suiteId,
@@ -91,16 +94,16 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
             }
         }
         var suites = map.Values.Where(suite => included.Contains(suite.Id)).ToList();
-        var results = new System.Collections.Concurrent.ConcurrentDictionary<int, List<TestPointSnapshot>>();
+        string Path(SuiteInfo suite) => suite.ParentId is { } parent && map.TryGetValue(parent, out var node)
+            ? Path(node) + " / " + suite.Name : suite.Name;
+        var results = new System.Collections.Concurrent.ConcurrentDictionary<int, List<NormalizedPoint>>();
         await Parallel.ForEachAsync(suites, new ParallelOptions
         {
             MaxDegreeOfParallelism = options.Value.MaxConcurrency, CancellationToken = ct
         }, async (suite, token) =>
         {
             var raw = await GetPointsAsync(planId, suite.Id, token);
-            results[suite.Id] = raw.Select(point => new TestPointSnapshot(AzureDevOpsClient.Number(point, "id"),
-                point.TryGetProperty("results", out var detail) && detail.ValueKind == JsonValueKind.Object
-                    ? AzureDevOpsClient.Text(detail, "outcome") : null)).ToList();
+            results[suite.Id] = raw.Select(point => TestPointNormalizer.Normalize(point, planId, suite.Id, Path(suite))).ToList();
         });
         return new(suites, results.ToDictionary(pair => pair.Key, pair => pair.Value));
     }
@@ -124,5 +127,5 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
 
     private static int Positive(int value) => value > 0 ? value : throw new ArgumentException("Invalid plan or suite ID.");
     private record SuiteInfo(int Id, string Name, int? ParentId);
-    private record ScopeSnapshot(List<SuiteInfo> Suites, Dictionary<int, List<TestPointSnapshot>> Points);
+    private record ScopeSnapshot(List<SuiteInfo> Suites, Dictionary<int, List<NormalizedPoint>> Points);
 }

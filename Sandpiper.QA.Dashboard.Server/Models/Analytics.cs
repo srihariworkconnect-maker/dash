@@ -31,6 +31,8 @@ public record PlanAnalytics(int PlanId, int? SuiteId, QaMetrics Metrics,
     string RulesVersion = "2026-10-19.1", bool Connected = true, bool Complete = true)
 {
     // Keep the original Frontier endpoint's aggregate fields for existing consumers.
+    public IReadOnlyList<NormalizedPoint> Points { get; init; } = [];
+    public ReconciliationStatus? Reconciliation { get; init; }
     public int Total => Metrics.Total;
     public int Passed => Metrics.Passed;
     public int Failed => Metrics.Failed;
