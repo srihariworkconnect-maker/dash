@@ -11,9 +11,7 @@ public sealed class WorkspaceEvidenceService(FrontierAnalyticsService analytics,
     public async Task<WorkspaceEvidence> LoadAsync(int planId, int? suiteId, ReportingWindow window,
         DateTimeOffset baselineFrom, string? tester, CancellationToken ct)
     {
-<<<<<<< HEAD
         if (baselineFrom > window.From || window.From >= window.To) throw new ArgumentException("Baseline must start no later than the reporting period.");
-=======
         // Short-lived scoped cache so repeated Overview/TCM/Quality loads for the same selection
         // do not re-issue the uncached work-item/defect queries on every filter interaction.
         var scope = await ado.ScopeKeyAsync(ct);
@@ -25,7 +23,6 @@ public sealed class WorkspaceEvidenceService(FrontierAnalyticsService analytics,
     private async Task<WorkspaceEvidence> CollectAsync(int planId, int? suiteId, ReportingWindow window,
         DateTimeOffset baselineFrom, string? tester, CancellationToken ct)
     {
->>>>>>> 62584ab (WIP: SAve dashboard fixes before pull)
         var snapshot = await analytics.GetAnalyticsAsync(planId, ct, suiteId);
         var events = await history.ReadAsync(planId, ct);
         var activity = ExecutionCalculator.Calculate(events, snapshot.Points, window, baselineFrom, tester);

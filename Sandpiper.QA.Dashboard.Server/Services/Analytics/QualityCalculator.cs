@@ -16,14 +16,9 @@ public static class QualityCalculator
     public static QualityEvidence Assess(PlanAnalytics snapshot, ExecutionIntelligence activity, QualityEvidence quality, QualityRules rules)
     {
         var reasons = quality.RiskReasons.ToList();
-<<<<<<< HEAD
-        var readiness = "Not Assessed — approved quality thresholds are not enabled";
-        if (rules.Enabled)
-=======
         var m = snapshot.Metrics;
         string readiness;
         if (!rules.Enabled)
->>>>>>> 62584ab (WIP: SAve dashboard fixes before pull)
         {
             // Never silently enable an unapproved release gate. Readiness stays "Not assessed".
             readiness = "Not assessed — approved release-gate thresholds are not configured";
