@@ -15,6 +15,25 @@ function load(fetch) {
     return module.exports;
 }
 
+test('unified category and outcome scope is forwarded and mismatched responses are rejected', async () => {
+    const calls = [];
+    const from = '2026-09-01T17:00:00Z', to = '2026-10-01T17:00:00Z', baselineFrom = '2026-08-01T17:00:00Z';
+    const snapshot = { planId: 1, suiteId: 2, complete: true, connected: true, appliedCategory: 'Targeted Regression', appliedOutcome: 'failed' };
+    const activity = { window: { from, to }, baseline: { from: baselineFrom } };
+    const exports = load(async url => {
+        calls.push(new URL(url, 'https://fixture.invalid'));
+        return Response.json(url.includes('/evidence/') ? { snapshot, activity } : url.includes('/activity/') ? activity : snapshot);
+    });
+    const api = exports.createBackendClient('/api'), signal = new AbortController().signal;
+    await api.analytics(1, 2, signal, 'actor', 'Targeted Regression', 'failed');
+    await api.evidence(1, 2, from, to, baselineFrom, 'actor', signal, 'Targeted Regression', 'failed');
+    await api.activity(1, 2, from, to, baselineFrom, 'actor', signal, 'Targeted Regression', 'failed');
+    for (const url of calls) { assert.equal(url.searchParams.get('category'), 'Targeted Regression'); assert.equal(url.searchParams.get('outcome'), 'failed'); }
+    snapshot.appliedCategory = 'Other';
+    await assert.rejects(api.analytics(1, 2, signal, 'actor', 'Targeted Regression', 'failed'), /mismatched/);
+    await assert.rejects(api.evidence(1, 2, from, to, baselineFrom, 'actor', signal, 'Targeted Regression', 'failed'), /mismatched/);
+});
+
 test('evidence permission failures retain an explicit status instead of becoming empty data', async () => {
     const exports = load(async () => Response.json({}, { status: 403 }));
     await assert.rejects(exports.createBackendClient('/api').evidence(1, null, '2026-10-19T00:00:00Z', '2026-10-20T00:00:00Z', '2026-10-18T00:00:00Z', '', new AbortController().signal),

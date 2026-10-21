@@ -3,10 +3,22 @@ import type { NormalizedPoint, PlanAnalytics } from '../services/adoApi';
 export interface ReportingContext {
     planId: number | null; suiteId: number | null; tester: string;
     preset: string; from: string; to: string; baselineFrom: string;
+    releaseStart?: string; releaseReference?: string; releaseConfirmed?: boolean;
+    category?: string; outcome?: string;
+    baselineExplicit?: boolean;
 }
 export const initialContext: ReportingContext = { planId: null, suiteId: null, tester: '', preset: 'Today', from: '', to: '', baselineFrom: '' };
 export function changePlan(context: ReportingContext, planId: number): ReportingContext {
-    return { ...context, planId, suiteId: null, tester: '' };
+    return { ...context, planId, suiteId: null, tester: '', category: '', outcome: '', releaseStart: '', releaseReference: '', releaseConfirmed: false,
+        ...(context.preset === 'Release-to-Date' ? { from: '', baselineFrom: '', baselineExplicit: false } :
+            context.releaseConfirmed ? { baselineFrom: context.from, baselineExplicit: false } : {}) };
+}
+export function confirmRelease(context: ReportingContext): ReportingContext {
+    const start = context.releaseStart ?? '';
+    if (!context.releaseReference?.trim() || !/(Z|[+-]\d{2}:\d{2})$/i.test(start) ||
+        !Number.isFinite(Date.parse(start)) || Date.parse(start) >= Date.parse(context.to))
+        throw new Error('Provide an authoritative release start with UTC offset, a source/reference, and an end after the start.');
+    return { ...context, releaseReference: context.releaseReference.trim(), releaseConfirmed: true, baselineExplicit: true, from: start, baselineFrom: start };
 }
 // Drill-through record selection only. All KPI totals/rates are calculated by the backend.
 export function matchesOutcome(outcome: string, group: string): boolean {
@@ -21,7 +33,7 @@ export function matchesOutcome(outcome: string, group: string): boolean {
 export function pointRows(points: NormalizedPoint[], planName: string) {
     return points.map(p => ({ key: p.id, pointId: p.id, plan: planName,
         suitePath: p.memberships.map(m => m.suitePath).join('; '), caseId: p.testCaseId,
-        title: p.title, configuration: p.configurationName ?? p.configurationId,
+        title: p.title, category: p.testingCategories?.join('; ') ?? 'Unclassified', configuration: p.configurationName ?? p.configurationId,
         assigned: p.assignedTester?.displayName ?? 'Unassigned', performer: p.latestExecutedBy?.displayName,
         latestDate: p.latestExecutionDate, outcome: p.outcome ?? 'Missing',
         executionCount: null, repeatCount: null, bugIds: null, bugState: null, bugPriority: null,
@@ -29,6 +41,7 @@ export function pointRows(points: NormalizedPoint[], planName: string) {
 }
 export function suiteRows(snapshot: PlanAnalytics) {
     return snapshot.suites.map(s => ({ key: s.suiteId, id: s.suiteId, name: s.suiteName,
+        requirementId: s.requirementId, suiteType: s.suiteType,
         own: s.metrics.total, subtree: s.subtreeMetrics?.total, executed: s.subtreeMetrics?.executed,
         blocked: s.subtreeMetrics?.blocked, progress: s.subtreeMetrics?.executionRate }));
 }

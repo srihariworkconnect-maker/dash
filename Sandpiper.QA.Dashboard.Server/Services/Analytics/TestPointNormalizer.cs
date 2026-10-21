@@ -5,6 +5,11 @@ namespace Sandpiper.QA.Dashboard.Server.Services.Analytics;
 
 public static class TestPointNormalizer
 {
+    public static DateTimeOffset? ExecutionDate(string? value) =>
+        DateTimeOffset.TryParse(value, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal, out var date) && date.Year > 1
+            ? date.ToUniversalTime() : null;
+
     public static SourceIdentity? Identity(JsonElement parent, string name)
     {
         if (!parent.TryGetProperty(name, out var item) || item.ValueKind != JsonValueKind.Object) return null;
@@ -33,7 +38,7 @@ public static class TestPointNormalizer
             tc.ValueKind == JsonValueKind.Object ? Identity(tc, "assignedTo") : null,
             detail.ValueKind == JsonValueKind.Object ? Identity(detail, "runBy") : null,
             Id(result, "lastTestRunId"), Id(result, "lastResultId"),
-            DateTimeOffset.TryParse(Text(detail, "dateCompleted"), out var date) ? date : null,
+            ExecutionDate(Text(detail, "dateCompleted")),
             type, raw, Text(result, "state"),
             point.TryGetProperty("isActive", out var active) && active.ValueKind is JsonValueKind.True or JsonValueKind.False ? active.GetBoolean() : null,
             [new(suiteId, path)]);

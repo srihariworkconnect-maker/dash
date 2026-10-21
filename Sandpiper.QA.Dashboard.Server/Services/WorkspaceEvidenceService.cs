@@ -10,25 +10,25 @@ public sealed class WorkspaceEvidenceService(FrontierAnalyticsService analytics,
     IOptions<QualityRules> rules, IOptions<AzureDevOpsOptions> options, ILogger<WorkspaceEvidenceService>? logger = null)
 {
     public async Task<WorkspaceEvidence> LoadAsync(int planId, int? suiteId, ReportingWindow window,
-        DateTimeOffset baselineFrom, string? tester, CancellationToken ct)
+        DateTimeOffset baselineFrom, string? tester, CancellationToken ct, string? category = null, string? outcome = null)
     {
         if (baselineFrom > window.From || window.From >= window.To) throw new ArgumentException("Baseline must start no later than the reporting period.");
         // Short-lived scoped cache so repeated Overview/TCM/Quality loads for the same selection
         // do not re-issue the uncached work-item/defect queries on every filter interaction.
         var scope = await ado.ScopeKeyAsync(ct);
-        var key = $"{scope}:evidence:{planId}:{suiteId}:{window.From:O}:{window.To:O}:{baselineFrom:O}:{tester ?? ""}";
+        var key = System.Text.Json.JsonSerializer.Serialize(new { scope, planId, suiteId, window, baselineFrom, tester, category, outcome });
         return await cache.GetAsync(key, TimeSpan.FromSeconds(options.Value.CacheSeconds),
-            token => CollectAsync(planId, suiteId, window, baselineFrom, tester, token), ct);
+            token => CollectAsync(planId, suiteId, window, baselineFrom, tester, token, category, outcome), ct);
     }
 
     private async Task<WorkspaceEvidence> CollectAsync(int planId, int? suiteId, ReportingWindow window,
-        DateTimeOffset baselineFrom, string? tester, CancellationToken ct)
+        DateTimeOffset baselineFrom, string? tester, CancellationToken ct, string? category, string? outcome)
     {
         var total = System.Diagnostics.Stopwatch.StartNew();
         logger?.LogInformation("Evidence collection started: plan {PlanId}; suite {SuiteId}", planId, suiteId);
 
         var stage = System.Diagnostics.Stopwatch.StartNew();
-        var snapshot = await analytics.GetAnalyticsAsync(planId, ct, suiteId);
+        var snapshot = await analytics.GetAnalyticsAsync(planId, ct, suiteId, null, category, outcome);
         logger?.LogInformation("Evidence stage 'analytics' completed in {ElapsedMs}ms: {Points} points, {Suites} suites",
             stage.ElapsedMilliseconds, snapshot.Points.Count, snapshot.SuiteCount);
 
@@ -39,6 +39,7 @@ public sealed class WorkspaceEvidenceService(FrontierAnalyticsService analytics,
 
         stage.Restart();
         var activity = ExecutionCalculator.Calculate(events, snapshot.Points, window, baselineFrom, tester);
+        history.LogDiagnostics(activity);
         logger?.LogInformation("Evidence stage 'activity-calculation' completed in {ElapsedMs}ms", stage.ElapsedMilliseconds);
 
         stage.Restart();

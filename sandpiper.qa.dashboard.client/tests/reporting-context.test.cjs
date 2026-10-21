@@ -7,7 +7,19 @@ const source = fs.readFileSync(require('node:path').join(__dirname, '../src/app/
 const moduleState = { exports: {} };
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText,
     { module: moduleState, exports: moduleState.exports });
-const { changePlan, pointRows, matchesOutcome, suiteOptions } = moduleState.exports;
+const { changePlan, confirmRelease, pointRows, matchesOutcome, suiteOptions } = moduleState.exports;
+
+test('release scope requires explicit offset-aware start and reference; changing plan clears confirmation', () => {
+    const c = { preset: 'Release-to-Date', releaseStart: '2026-10-01T00:00:00Z', to: '2026-10-21T00:00:00Z' };
+    assert.throws(() => confirmRelease(c), /authoritative/);
+    assert.throws(() => confirmRelease({ ...c, releaseReference: 'Approved release', releaseStart: '2026-10-01' }), /authoritative/);
+    const confirmed = confirmRelease({ ...c, releaseReference: 'Approved release / R2' });
+    assert.equal(confirmed.from, c.releaseStart); assert.equal(confirmed.baselineFrom, c.releaseStart);
+    assert.equal(confirmed.releaseConfirmed, true);
+    const next = changePlan(confirmed, 839718);
+    assert.equal(next.releaseConfirmed, false); assert.equal(next.from, ''); assert.equal(next.releaseReference, '');
+    assert.equal(next.category, ''); assert.equal(next.outcome, '');
+});
 test('plan changes reset suite and tester while preserving reporting dates', () => {
     const next = changePlan({ planId: 1, suiteId: 2, tester: 'identity', from: 'start', to: 'end' }, 3);
     assert.equal(next.planId, 3); assert.equal(next.suiteId, null); assert.equal(next.tester, ''); assert.equal(next.from, 'start');

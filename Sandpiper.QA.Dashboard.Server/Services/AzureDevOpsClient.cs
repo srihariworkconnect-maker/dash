@@ -151,13 +151,10 @@ public sealed class AzureDevOpsClient(HttpClient http, TokenCredential credentia
                 }
                 if (!response.IsSuccessStatusCode)
                 {
-                    // Capture the exact endpoint, status and a bounded, non-sensitive error-body snippet
-                    // (ADO error bodies carry a descriptive message, not credentials) before throwing.
+                    // Upstream error bodies may contain confidential context. Log transport metadata only.
                     var contentType = response.Content.Headers.ContentType?.MediaType;
-                    var body = await response.Content.ReadAsStringAsync(ct);
-                    logger?.LogWarning("Azure DevOps GET _apis/{Path} returned {Status} {Reason}; contentType {ContentType}; call {CallMs}ms; body {Body}",
-                        path, (int)response.StatusCode, response.ReasonPhrase, contentType, callElapsed.ElapsedMilliseconds,
-                        body.Length > 300 ? body[..300] : body);
+                    logger?.LogWarning("Azure DevOps GET _apis/{Path} returned {Status} {Reason}; contentType {ContentType}; call {CallMs}ms",
+                        path, (int)response.StatusCode, response.ReasonPhrase, contentType, callElapsed.ElapsedMilliseconds);
                 }
                 response.EnsureSuccessStatusCode();
                 using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(ct));
@@ -239,11 +236,18 @@ public sealed class AzureDevOpsClient(HttpClient http, TokenCredential credentia
     {
         Dictionary<int, JsonElement> all = [];
         var skip = 0;
+        var rawRecords = 0;
         for (var page = 0; page < 10000; page++)
         {
             var query = new Dictionary<string, string>(parameters) { ["$skip"] = skip.ToString(), ["$top"] = "200" };
             var result = await PageAsync(path, query, ct);
-            if (result.Items.Count == 0) return all.Values.ToList();
+            if (result.Items.Count == 0)
+            {
+                logger?.LogInformation("ADO history pagination complete: {Pages} pages; {RawRecords} records; {UniqueRecords} unique identities; {Duplicates} duplicate records",
+                    page + 1, rawRecords, all.Count, rawRecords - all.Count);
+                return all.Values.ToList();
+            }
+            rawRecords += result.Items.Count;
             var previous = all.Count;
             foreach (var item in result.Items)
             {

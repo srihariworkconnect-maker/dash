@@ -23,15 +23,15 @@ export default function DataTable({ rows, columns, name, onSelect }: {
     const exporter = useContext(TableExportContext);
     const [exportError, setExportError] = useState('');
     const [exporting, setExporting] = useState(false);
-    const exportExcel = async () => {
+    const exportExcel = async (format: 'xlsx' | 'pdf' = 'xlsx') => {
         if (!exporter) return;
         setExporting(true); setExportError('');
         const selected = columns.filter(c => visible.includes(c.key));
         try {
             const blob = await exporter({ name, columns: selected.map(c => c.label),
-                rows: filtered.map(row => selected.map(c => row[c.key] == null ? null : String(row[c.key]))) }, new AbortController().signal);
+                rows: filtered.map(row => selected.map(c => row[c.key] == null ? null : String(row[c.key]))) }, new AbortController().signal, format);
             const url = URL.createObjectURL(blob), a = document.createElement('a');
-            a.href = url; a.download = 'Sandpiper-selected-records.xlsx'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+            a.href = url; a.download = `Sandpiper-selected-records.${format}`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
         } catch (e) { setExportError(e instanceof Error ? e.message : 'Workbook export unavailable'); }
         finally { setExporting(false); }
     };
@@ -64,6 +64,7 @@ export default function DataTable({ rows, columns, name, onSelect }: {
             } catch { /* Ignore invalid saved metadata. No report data is persisted. */ } }}>Load view</button></div></details>
         <button onClick={exportCsv}>Export filtered CSV</button>
         {exporter && <button disabled={exporting || !visible.length} onClick={() => { void exportExcel(); }}>{exporting ? 'Exporting…' : 'Export filtered Excel'}</button>}
+        {exporter && <button disabled={exporting || !visible.length || filtered.length > 5000} onClick={() => { void exportExcel('pdf'); }}>Export filtered PDF</button>}
         <label><input type="checkbox" checked={virtual} onChange={e => { setVirtual(e.target.checked); setScrollTop(0); }} />Virtual scrolling</label>
         <span>{filtered.length} records</span></div>{exportError && <p role="alert">{exportError}</p>}
         <div className={`table-scroll ${virtual ? 'virtual-scroll' : ''}`} onScroll={e => { if (virtual) setScrollTop(e.currentTarget.scrollTop); }}><table><thead><tr>{columns.filter(c => visible.includes(c.key)).map(c => <th key={c.key}

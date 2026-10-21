@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { BackendClient, ExecutionIntelligence, PlanAnalytics, QualityEvidence } from '../services/adoApi';
 import type { ReportingContext } from '../app/ReportingContext';
 import DataTable, { type DataRow } from './DataTable';
+import ReexecutionDetails from './ReexecutionDetails';
 
 export default function ActivityPanel({ api, context, mode, snapshot, assignmentSnapshot }: { api: BackendClient; context: ReportingContext; mode: string; snapshot: PlanAnalytics; assignmentSnapshot: PlanAnalytics }) {
     const [refresh, setRefresh] = useState(0);
@@ -17,11 +18,11 @@ export default function ActivityPanel({ api, context, mode, snapshot, assignment
         const controller = new AbortController();
         void (async () => {
             if (mode === 'Productivity Tracker') {
-                const bundle = await api.evidence(context.planId!, context.suiteId, context.from, context.to, context.baselineFrom, context.tester, controller.signal);
+                const bundle = await api.evidence(context.planId!, context.suiteId, context.from, context.to, context.baselineFrom, context.tester, controller.signal, context.category, context.outcome);
                 if (!controller.signal.aborted) setQuality(bundle.quality);
                 return bundle.activity;
             }
-            return api.activity(context.planId!, context.suiteId, context.from, context.to, context.baselineFrom, context.tester, controller.signal);
+            return api.activity(context.planId!, context.suiteId, context.from, context.to, context.baselineFrom, context.tester, controller.signal, context.category, context.outcome);
         })()
             .then(result => { if (!controller.signal.aborted) setData(result); })
             .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'History unavailable'); });
@@ -32,7 +33,8 @@ export default function ActivityPanel({ api, context, mode, snapshot, assignment
     const suiteScope = new Set(context.suiteId == null ? snapshot.suites.map(s => s.suiteId) : [context.suiteId]);
     let expanded = true;
     while (expanded) { expanded = false; for (const s of snapshot.suites) if (s.parentSuiteId != null && suiteScope.has(s.parentSuiteId) && !suiteScope.has(s.suiteId)) { suiteScope.add(s.suiteId); expanded = true; } }
-    const scopePoints = snapshot.points.filter(p => p.memberships.some(m => suiteScope.has(m.suiteId)));
+    const scopePoints = snapshot.points.filter(p => p.memberships.some(m => suiteScope.has(m.suiteId) && (!context.category || (m.testingCategory ?? 'Unclassified') === context.category)) &&
+        (!context.outcome || (p.outcome ?? 'missing').trim().toLowerCase() === context.outcome));
     const assignments = assignmentSnapshot.assignments ?? [];
     const suiteHotspots = snapshot.suites.filter(s => suiteScope.has(s.suiteId)).map(suite => {
         const points = scopePoints.filter(p => p.memberships.some(m => m.suiteId === suite.suiteId));
@@ -42,6 +44,7 @@ export default function ActivityPanel({ api, context, mode, snapshot, assignment
     });
     return <section className="cc-panel"><div className="section-title"><h2>{mode} · period activity</h2>
         <button className="primary-button" disabled={!context.from || !context.to || !context.baselineFrom} onClick={load}>Load retained history</button></div>
+        {mode === 'Execution Intelligence' && data && <ReexecutionDetails report={data.reexecution} baseline={data.baselineReexecution} periodRepeats={data.repeatEvents} complete={data.complete} />}
         <p className="definition">Set an explicit repeat baseline at or before the reporting start. Daily repeats include earlier baseline attempts.
             Assignment counts are current state; execution counts use the actual performer. Bugs/verification require separate work-item evidence.</p>
         {!context.baselineFrom && <p>Choose the baseline start in the global toolbar to enable activity calculations.</p>}
@@ -50,7 +53,7 @@ export default function ActivityPanel({ api, context, mode, snapshot, assignment
         {ready && !data && !error && <p role="status">Reading paginated result records…</p>}
         {error && <p className="error" role="alert">{error}</p>}
         {data && <><div className="compact-kpis">{[['Re-executed test cases in baseline', data.caseRetesting?.reExecutedTestCases ?? 'Incomplete / unavailable'], ['Re-executed points in baseline', data.reExecutedPoints ?? 'Incomplete'],
-            ['Repeat events in period', data.repeatEvents], ['Unique points in period', data.uniquePoints],
+            ['Repeat events in period', data.complete ? data.repeatEvents : 'Incomplete evidence'], ['Unique points in period', data.complete ? data.uniquePoints : 'Incomplete evidence'],
             ['Missing point links', data.missingPointLinks], ['Missing dates', data.missingDates]].map(([label, value]) =>
                 <div className="compact-kpi" key={label}><small>{label}</small><b>{value}</b></div>)}</div>
             {!data.complete && <p className="error">History is incomplete. Counts below are linked, dated evidence only and are not authoritative totals.</p>}

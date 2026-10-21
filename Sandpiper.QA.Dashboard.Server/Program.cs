@@ -137,7 +137,7 @@ app.MapGet("/api/auth/check", async (TokenCredential credential, CancellationTok
 });
 app.MapGet("/api/ado/testplans", (FrontierAnalyticsService service, CancellationToken ct) => service.GetPlansAsync(ct));
 app.MapGet("/api/ado/frontier/analytics/{planId:int}",
-    (int planId, int? suiteId, string? tester, FrontierAnalyticsService service, CancellationToken ct) => service.GetAnalyticsAsync(planId, ct, suiteId, tester));
+    (int planId, int? suiteId, string? tester, string? category, string? outcome, FrontierAnalyticsService service, CancellationToken ct) => service.GetAnalyticsAsync(planId, ct, suiteId, tester, category, outcome));
 app.MapGet("/api/ado/frontier/suites/{planId:int}", async (int planId, FrontierAnalyticsService service, CancellationToken ct) =>
     new { value = await service.GetSuitesAsync(planId, ct) });
 app.MapGet("/api/ado/frontier/points/{planId:int}/{suiteId:int}",
@@ -162,24 +162,32 @@ app.MapGet("/api/reporting/settings", (Microsoft.Extensions.Options.IOptions<Azu
 app.MapGet("/api/reporting/period", (string preset, Microsoft.Extensions.Options.IOptions<AzureDevOpsOptions> settings) =>
     ReportingClock.Preset(DateTimeOffset.UtcNow, preset, TimeOnly.ParseExact(settings.Value.DsrCutoff, "HH:mm", CultureInfo.InvariantCulture)));
 app.MapGet("/api/v2/activity/{planId:int}", (int planId, int? suiteId, string from, string to, string baselineFrom,
-    string? tester, ExecutionHistoryService service, CancellationToken ct) =>
-    service.ActivityAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));
+    string? tester, string? category, string? outcome, ExecutionHistoryService service, CancellationToken ct) =>
+    service.ActivityAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct, category, outcome));
 app.MapControllers();
 app.MapPost("/api/v2/cache/refresh", (SnapshotCache cache) => { cache.Clear(); return Results.Ok(new { status = "Local source cache cleared", at = DateTimeOffset.UtcNow }); });
 app.MapGet("/api/v2/audit", (AuditTrail audit) => new { scope = "Local process metadata only; 500 entries; not an enterprise audit store", entries = audit.List() });
-app.MapPost("/api/v2/exports/table", (Sandpiper.QA.Dashboard.Server.Models.ReportTable table) =>
+app.MapPost("/api/v2/exports/table", (Sandpiper.QA.Dashboard.Server.Models.ReportTable table, string? format) =>
 {
+    if (format is not (null or "xlsx" or "pdf")) throw new ArgumentException("Choose xlsx or pdf.");
     if (table.Columns is not { Length: > 0 and <= 32 } || table.Rows == null || table.Rows.Count > 50000 ||
         table.Columns.Any(c => c == null || c.Length > 32767) ||
         table.Rows.Any(row => row == null || row.Length != table.Columns.Length || row.Any(cell => cell?.Length > 32767)))
         throw new ArgumentException("Export supports 1–32 columns and at most 50,000 rows.");
     var safe = table with { Name = "Selected records" };
+    if (format == "pdf")
+    {
+        if (table.Rows.Count > 5000 || table.Rows.Sum(row => row.Sum(cell => (long)(cell?.Length ?? 0))) > 500000)
+            throw new ArgumentException("PDF table export supports up to 5,000 rows and 500,000 text characters; use Excel for larger scopes.");
+        return Results.File(ReportExporter.PdfTables([safe], "Sandpiper selected records", DateTimeOffset.UtcNow,
+            "Filtered collected evidence; not historical as-of certification"), "application/pdf", "Sandpiper-selected-records.pdf");
+    }
     return Results.File(ReportExporter.Excel([safe]), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Sandpiper-selected-records.xlsx");
 });
-app.MapPost("/api/v2/reconcile/{planId:int}", async (int planId, int? suiteId, string? tester,
+app.MapPost("/api/v2/reconcile/{planId:int}", async (int planId, int? suiteId, string? tester, string? category, string? outcome,
     Dictionary<string, int?> counts, FrontierAnalyticsService service, CancellationToken ct) =>
 {
-    var snapshot = await service.GetAnalyticsAsync(planId, ct, suiteId, tester);
+    var snapshot = await service.GetAnalyticsAsync(planId, ct, suiteId, tester, category, outcome);
     var observed = new Dictionary<string, int> { ["total"] = snapshot.Total, ["passed"] = snapshot.Passed, ["failed"] = snapshot.Failed,
         ["blocked"] = snapshot.Blocked, ["pending"] = snapshot.Pending, ["notApplicable"] = snapshot.Metrics.NotApplicable };
     if (observed.Keys.Any(k => !counts.ContainsKey(k) || counts[k] is null or < 0)) throw new ArgumentException("All reference counts must be supplied.");
@@ -188,8 +196,8 @@ app.MapPost("/api/v2/reconcile/{planId:int}", async (int planId, int? suiteId, s
         snapshot.Reconciliation };
 });
 app.MapGet("/api/v2/evidence/{planId:int}", (int planId, int? suiteId, string from, string to, string baselineFrom,
-    string? tester, WorkspaceEvidenceService service, CancellationToken ct) =>
-    service.LoadAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct));
+    string? tester, string? category, string? outcome, WorkspaceEvidenceService service, CancellationToken ct) =>
+    service.LoadAsync(planId, suiteId, ReportingScope.Window(from, to), ReportingScope.Instant(baselineFrom), tester, ct, category, outcome));
 app.MapGet("/api/v2/compare", async (string plans, FrontierAnalyticsService service, CancellationToken ct) =>
 {
     var ids = plans.Split(',').Select(int.Parse).Distinct().ToArray();

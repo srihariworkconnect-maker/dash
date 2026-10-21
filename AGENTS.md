@@ -151,6 +151,40 @@ See `docs/reporting-rules.md` for implementation details and unresolved decision
 
 ## Current repository status
 
+### Unified reporting contract (21 October 2026)
+
+- All eight primary modules use the same plan/subtree, testing category and current
+  outcome scope. Tester filters distinguish current assignment from actual execution
+  and Created By activity. Full-plan comparison remains explicitly separate.
+- Testing categories come from AzureDevOps:SuiteCategories plan/suite-ID rules,
+  with optional descendant inheritance and nearest child override. No Pre-Test,
+  Post-Test or story-title naming convention is required or inferred.
+- Last Month / Last 2 Months mean previous complete calendar months in Europe/London
+  bounded by the configured DSR cutoff, as confirmed by the user. Preserve explicit
+  release/repeat baselines when changing the activity period.
+- Current collection, baseline cumulative execution, date-range activity and
+  authenticated historical as-of point state are distinct. Do not call a current
+  snapshot a historical cutoff. Frozen JSON preserves collected evidence; imported
+  evidence remains untrusted and no corporate database is assumed available.
+- Report exports and saved evidence include the selected filters and collection
+  metadata. Never regenerate live data just to reopen or export an existing report.
+- See docs/unified-reporting.md for implementation, local verification and VDI checks.
+
+### Selected-range re-execution reporting (21 October 2026)
+
+- The latest user instruction supersedes the earlier distinct-case Overview label:
+  **Re-executed Test Cases** now follows ADO Progress Report terminology and counts
+  distinct test points with at least two qualifying attempts in the selected range.
+- **Total Re-execution Attempts** sums additional attempts beyond the first per
+  point. Use `activity.reexecution` for both cards and point-level drill evidence.
+- Preserve legacy `caseRetesting` distinct-case semantics and baseline-based
+  DSR/TCR fields. Do not silently repurpose those API values.
+- Release-to-Date requires a confirmed authoritative start plus source/reference;
+  Custom Range uses the entire selected range. Never infer release start from a
+  test plan or arbitrary repeat baseline. See `docs/reexecution-reporting.md`.
+- This delivery requires presenting results for approval before committing or
+  pushing. Do not create a PR or merge main.
+
 The user has authorized V2 Gates A–F sequential implementation and meaningful commits
 and pushes on a dedicated feature branch. Separate design approval per gate is no
 longer required. Do not merge main, deploy, publish extensions or provision corporate

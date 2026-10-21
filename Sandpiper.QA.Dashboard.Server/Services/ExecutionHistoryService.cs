@@ -19,6 +19,8 @@ public sealed class ExecutionHistoryService(AzureDevOpsClient ado, FrontierAnaly
     {
         var elapsed = System.Diagnostics.Stopwatch.StartNew();
         var runs = await ado.HistoryAsync("test/runs", new() { ["planId"] = planId.ToString() }, ct);
+        var planSnapshot = await analytics.GetAnalyticsAsync(planId, ct);
+        var resolver = new ExecutionPointResolver(planSnapshot.Points);
         logger?.LogInformation("Execution history: fetched {Runs} runs for plan {PlanId} in {ElapsedMs}ms; reading per-run results (concurrency 4)",
             runs.Count, planId, elapsed.ElapsedMilliseconds);
         var events = new System.Collections.Concurrent.ConcurrentBag<ExecutionEvent>();
@@ -37,31 +39,48 @@ public sealed class ExecutionHistoryService(AzureDevOpsClient ado, FrontierAnaly
             foreach (var result in results)
             {
                 var id = AzureDevOpsClient.Number(result, "id");
-                var point = result.TryGetProperty("testPoint", out var p) && p.ValueKind == JsonValueKind.Object ? AzureDevOpsClient.Number(p, "id") : 0;
+                var mapping = resolver.Resolve(result);
                 var outcome = KpiCalculator.Normalize(AzureDevOpsClient.Text(result, "outcome"));
                 var state = AzureDevOpsClient.Text(result, "state");
                 var bugs = result.TryGetProperty("associatedBugs", out var b) && b.ValueKind == JsonValueKind.Array
                     ? b.EnumerateArray().Select(bug => AzureDevOpsClient.Number(bug, "id")).Where(n => n > 0).Distinct().ToArray() : [];
                 var rawDate = AzureDevOpsClient.Text(result, "completedDate");
-                events.Add(new($"{runId}:{id}", runId, id, point > 0 ? point : null, outcome, state,
-                    DateTimeOffset.TryParse(rawDate, System.Globalization.CultureInfo.InvariantCulture,
-                        System.Globalization.DateTimeStyles.AssumeUniversal, out var date) ? date.ToUniversalTime() : null,
+                events.Add(new($"{runId}:{id}", runId, id, mapping.PointId, outcome, state,
+                    TestPointNormalizer.ExecutionDate(rawDate),
                     TestPointNormalizer.Identity(result, "runBy"), bugs,
                     AzureDevOpsClient.Text(result, "url"), ExecutionCalculator.Qualifies(outcome, state))
-                    { BugLinksAvailable = result.TryGetProperty("associatedBugs", out var links) && links.ValueKind == JsonValueKind.Array });
+                    { PointMapping = mapping.Status,
+                      BugLinksAvailable = result.TryGetProperty("associatedBugs", out var links) && links.ValueKind == JsonValueKind.Array });
             }
         });
         logger?.LogInformation("Execution history complete for plan {PlanId}: {Runs} runs, {ResultCalls} result fetches, {Events} events in {ElapsedMs}ms",
             planId, runs.Count, resultCalls, events.Count, elapsed.ElapsedMilliseconds);
+        foreach (var group in events.GroupBy(e => e.PointMapping))
+            logger?.LogInformation("Execution mapping: {MappingStatus}, {Records} records", group.Key, group.Count());
         return events.OrderBy(e => e.RunId).ThenBy(e => e.ResultId).ToList();
     }
 
     public async Task<ExecutionIntelligence> ActivityAsync(int planId, int? suiteId, ReportingWindow window,
-        DateTimeOffset baselineFrom, string? tester, CancellationToken ct)
+        DateTimeOffset baselineFrom, string? tester, CancellationToken ct, string? category = null, string? outcome = null)
     {
         if (baselineFrom > window.From || window.From >= window.To) throw new ArgumentException("Baseline must start no later than the reporting period.");
-        var snapshot = await analytics.GetAnalyticsAsync(planId, ct, suiteId);
+        var snapshot = await analytics.GetAnalyticsAsync(planId, ct, suiteId, null, category, outcome);
         var events = await ReadAsync(planId, ct);
-        return ExecutionCalculator.Calculate(events, snapshot.Points, window, baselineFrom, tester);
+        var result = ExecutionCalculator.Calculate(events, snapshot.Points, window, baselineFrom, tester);
+        LogDiagnostics(result);
+        return result;
+    }
+
+    public void LogDiagnostics(ExecutionIntelligence activity)
+    {
+        foreach (var (scope, report) in new[] { ("Activity", activity.Reexecution), ("Baseline", activity.BaselineReexecution) })
+        {
+            if (report?.Diagnostics is not { } d) continue;
+            logger?.LogInformation("Reexecution {Scope} [{From:O}, {To:O}): state {State}; source {Source}; unique results {Unique}; duplicates {Duplicates}; qualifying {Qualifying}; unique points {Points}; repeated points {Repeated}; additional attempts {Additional}",
+                scope, report.Window.From, report.Window.To, report.State, d.SourceResults, d.UniqueResults,
+                d.DuplicatesRemoved, d.QualifyingExecutions, d.UniqueTestPoints, d.RepeatedTestPoints, d.AdditionalAttempts);
+            foreach (var exclusion in d.Excluded.Where(e => e.Value > 0))
+                logger?.LogInformation("Reexecution {Scope} excluded: {Reason}, {Records} records", scope, exclusion.Key, exclusion.Value);
+        }
     }
 }

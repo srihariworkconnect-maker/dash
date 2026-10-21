@@ -19,7 +19,7 @@ export default function QualityPanel({ api, context, onLoaded, onError, autoLoad
     useEffect(() => {
         if (!shouldLoad || !context.planId) return;
         const controller = new AbortController();
-        void api.evidence(context.planId, context.suiteId, context.from, context.to, context.baselineFrom, context.tester, controller.signal)
+        void api.evidence(context.planId, context.suiteId, context.from, context.to, context.baselineFrom, context.tester, controller.signal, context.category, context.outcome)
             .then(result => { if (!controller.signal.aborted) { setData(result); onLoaded?.(result); } })
             .catch(cause => { if (!controller.signal.aborted) { const message = cause instanceof Error ? cause.message : 'Evidence unavailable'; setError(message); onError?.(message); } });
         return () => controller.abort();

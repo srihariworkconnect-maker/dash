@@ -8,6 +8,7 @@ public sealed class AzureDevOpsOptions
     public int MaxConcurrency { get; set; } = 4;
     public string DsrCutoff { get; set; } = "18:00";
     public int CacheSeconds { get; set; } = 30;
+    public List<SuiteCategoryRule> SuiteCategories { get; set; } = [];
     // Upper bound for acquiring an Azure DevOps access token. VisualStudioCredential can block on a
     // broker/IDE handshake inside a VDI; without a bound a single stalled sign-in leaves the whole
     // evidence request pending indefinitely. A breach fails the request with an explicit error.
@@ -18,3 +19,4 @@ public sealed class AzureDevOpsOptions
     // (e.g. wit/workitemrelationtypes); the project-scoped path returns 404 for these.
     public string OrganizationBaseUrl => $"https://dev.azure.com/{Uri.EscapeDataString(Organization)}";
 }
+public sealed record SuiteCategoryRule(int PlanId, int SuiteId, string Category, bool IncludeDescendants = true);

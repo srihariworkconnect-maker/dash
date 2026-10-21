@@ -19,6 +19,10 @@ public record ReexecutionMetrics(int? ReExecuted, int LinkedReExecuted,
 public record SuiteAnalytics(int SuiteId, string SuiteName, int? ParentSuiteId,
     QaMetrics Metrics)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public int? RequirementId { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? SuiteType { get; init; }
     public QaMetrics? SubtreeMetrics { get; init; }
     public int Total => Metrics.Total;
     public int Passed => Metrics.Passed;
@@ -32,6 +36,12 @@ public record PlanAnalytics(int PlanId, int? SuiteId, QaMetrics Metrics,
     IReadOnlyList<SuiteAnalytics> Suites, int SuiteCount, DateTimeOffset RetrievedAt,
     string RulesVersion = "2026-10-19.1", bool Connected = true, bool Complete = true)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AppliedCategory { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? AppliedOutcome { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<string>? AvailableCategories { get; init; }
     // Keep the original Frontier endpoint's aggregate fields for existing consumers.
     public IReadOnlyList<NormalizedPoint> Points { get; init; } = [];
     public ReconciliationStatus? Reconciliation { get; init; }

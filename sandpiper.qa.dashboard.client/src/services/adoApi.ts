@@ -25,12 +25,14 @@ export interface QaMetrics {
 }
 
 export interface PlanAnalytics {
+    appliedCategory?: string | null; appliedOutcome?: string | null;
+    availableCategories?: string[];
     caseMetrics?: { totalTestCases: number | null; executedTestCases: number | null; executionCoverage: number | null;
         knownTestCases: number; knownExecutedTestCases: number; missingCaseMappings: number; unclassifiedCases?: number; state: string; testCaseIds: number[]; executedCaseIds: number[] };
     planId: number;
     suiteId: number | null;
     metrics: QaMetrics;
-    suites: { suiteId: number; suiteName: string; parentSuiteId: number | null; metrics: QaMetrics; subtreeMetrics: QaMetrics }[];
+    suites: { suiteId: number; suiteName: string; parentSuiteId: number | null; metrics: QaMetrics; subtreeMetrics: QaMetrics; requirementId?: number | null; suiteType?: string | null }[];
     points: NormalizedPoint[];
     sourceBaseUrl: string | null;
     reconciliation: { collectionComplete: boolean; validationState: string; unspecified: number;
@@ -47,16 +49,19 @@ export interface PlanAnalytics {
 
 export interface Identity { key: string; displayName: string }
 export interface NormalizedPoint {
+    testingCategories?: string[];
     id: number; planId: number; outcome: string | null; testCaseId: number | null;
     title: string | null; configurationId: number | null; configurationName: string | null;
     assignedTester: Identity | null; latestExecutedBy: Identity | null;
     latestRunId: number | null; latestResultId: number | null; latestExecutionDate: string | null;
     outcomeJsonType: string; rawOutcome: string | null; resultState: string | null; isActive: boolean | null;
-    memberships: { suiteId: number; suitePath: string }[];
+    memberships: { suiteId: number; suitePath: string; testingCategory?: string | null }[];
 }
 
 export interface ReportingWindow { from: string; to: string }
 export interface ReportSnapshot {
+    scope?: { category: string | null; outcome: string | null; tester: string | null; preset: string | null;
+        releaseReference: string | null; currentStateCollectedAt: string; requestedAsOf: string; historicalAsOfStatus: string; membershipBasis: string };
     id: string; kind: string; createdAt: string; calculationVersion: string; status: string; origin: string;
     checksum: string; currentSnapshot: PlanAnalytics; activity: ExecutionIntelligence;
     narrative: Record<string, string>; limitations: string[];
@@ -86,7 +91,18 @@ export interface ExecutionEvent {
     state: string | null; completedAt: string | null; performer: Identity | null;
     bugIds: number[]; sourceUrl: string | null; qualifies: boolean; isRepeat: boolean; transition: string | null;
 }
+export interface ReexecutionReport {
+    window: ReportingWindow; reexecutedTestPoints: number | null; additionalAttempts: number | null;
+        knownReexecutedTestPoints: number; knownAdditionalAttempts: number; state: string; reasons: string[];
+        points: { pointId: number; testCaseId: number | null; title: string | null;
+            suites: { suiteId: number; suitePath: string }[]; executionCount: number; reexecutionCount: number; attempts: ExecutionEvent[] }[];
+    diagnostics?: { sourceResults: number; uniqueResults: number; duplicatesRemoved: number;
+        qualifyingExecutions: number; uniqueTestPoints: number; repeatedTestPoints: number; additionalAttempts: number;
+        excluded: Record<string, number>; mapping: Record<string, number> };
+}
 export interface ExecutionIntelligence {
+    reexecution?: ReexecutionReport;
+    baselineReexecution?: ReexecutionReport;
     evidence?: EvidenceAssessment;
     caseRetesting?: { reExecutedTestCases: number | null; knownReExecutedTestCases: number; missingCaseMappings: number; state: string;
         cases: { caseId: number; pointIds: number[]; attempts: ExecutionEvent[] }[] };
@@ -171,30 +187,35 @@ export function createBackendClient(baseUrl: string) {
     }
     return {
         reportingSettings: (signal: AbortSignal) => get<{ timezone: string; dsrCutoff: string; cacheSeconds: number }>('/reporting/settings', signal),
-        exportTable: async (body: { name: string; columns: string[]; rows: (string | null)[][] }, signal: AbortSignal) => {
-            const response = await fetch(`${baseUrl}/v2/exports/table`, { method: 'POST', signal, credentials: 'omit',
+        exportTable: async (body: { name: string; columns: string[]; rows: (string | null)[][] }, signal: AbortSignal, format: 'xlsx' | 'pdf' = 'xlsx') => {
+            const response = await fetch(`${baseUrl}/v2/exports/table${format === 'pdf' ? '?format=pdf' : ''}`, { method: 'POST', signal, credentials: 'omit',
                 headers: { 'Content-Type': 'application/json', 'X-Sandpiper-Client': 'dashboard' }, body: JSON.stringify(body) });
-            if (!response.ok) throw new Error(`Workbook export unavailable (${response.status}). Maximum 50,000 rows / 20 MB.`);
+            if (!response.ok) throw new Error(`Export unavailable (${response.status}). Excel: 50,000 rows; PDF: 5,000 rows; request limit: 20 MB.`);
             return response.blob();
         },
         refresh: (signal: AbortSignal) => get<{ status: string }>('/v2/cache/refresh', signal, {}),
         audit: (signal: AbortSignal) => get<{ scope: string; entries: Record<string, unknown>[] }>('/v2/audit', signal),
         auth: (signal: AbortSignal) => get<{ authenticated: boolean; adoAuthorizationValidated?: boolean; reason?: string }>('/auth/check', signal),
-        reconcile: (planId: number, suiteId: number | null, tester: string, counts: Record<string, number>, signal: AbortSignal) => {
+        reconcile: (planId: number, suiteId: number | null, tester: string, counts: Record<string, number>, signal: AbortSignal, category?: string, outcome?: string) => {
             const query = new URLSearchParams();
+            if (category) query.set('category', category);
+            if (outcome) query.set('outcome', outcome);
             if (suiteId != null) query.set('suiteId', String(suiteId));
             if (tester) query.set('tester', tester);
             return get<{ status: string; differences: { category: string; source: number; reference: number; difference: number }[] }>(`/v2/reconcile/${planId}?${query}`, signal, counts);
         },
         createReport: (body: unknown, signal: AbortSignal) => get<ReportSnapshot>('/v2/reports', signal, body),
-        evidence: async (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal) => {
+        evidence: async (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal, category?: string, outcome?: string) => {
             const query = new URLSearchParams({ from, to, baselineFrom });
+            if (category) query.set('category', category);
+            if (outcome) query.set('outcome', outcome);
             if (suiteId != null) query.set('suiteId', String(suiteId));
             if (tester) query.set('tester', tester);
             const result = await get<WorkspaceEvidence>(`/v2/evidence/${planId}?${query}`, signal);
             if (result.snapshot?.planId !== planId || (result.snapshot?.suiteId ?? null) !== suiteId || !result.snapshot?.complete || !result.snapshot?.connected ||
                 Date.parse(result.activity?.window?.from) !== Date.parse(from) || Date.parse(result.activity?.window?.to) !== Date.parse(to) ||
-                Date.parse(result.activity?.baseline?.from) !== Date.parse(baselineFrom)) throw new Error('Backend returned mismatched evidence scope or reporting boundaries.');
+                Date.parse(result.activity?.baseline?.from) !== Date.parse(baselineFrom) ||
+                (result.snapshot.appliedCategory ?? '') !== (category ?? '') || (result.snapshot.appliedOutcome ?? '') !== (outcome ?? '')) throw new Error('Backend returned mismatched evidence scope or reporting boundaries.');
             return result;
         },
         compare: (plans: number[], signal: AbortSignal) => get<{ scope: string; snapshots: PlanAnalytics[] }>(`/v2/compare?plans=${plans.join(',')}`, signal),
@@ -209,21 +230,26 @@ export function createBackendClient(baseUrl: string) {
         },
         health: (signal: AbortSignal) => get<{ status: string; adoConnected: boolean | null }>('/health', signal),
         plans: (signal: AbortSignal) => get<{ value: AdoTestPlan[] }>('/ado/testplans', signal),
-        analytics: async (planId: number, suiteId: number | null, signal: AbortSignal, tester?: string) => {
+        analytics: async (planId: number, suiteId: number | null, signal: AbortSignal, tester?: string, category?: string, outcome?: string) => {
             const query = new URLSearchParams();
+            if (category) query.set('category', category);
+            if (outcome) query.set('outcome', outcome);
             if (suiteId != null) query.set('suiteId', String(suiteId));
             if (tester) query.set('tester', tester);
             const suffix = query.size ? `?${query}` : '';
             const result = await get<PlanAnalytics>(`/ado/frontier/analytics/${planId}${suffix}`, signal);
-            if (result.planId !== planId || (result.suiteId ?? null) !== suiteId || !result.complete || !result.connected) {
+            if (result.planId !== planId || (result.suiteId ?? null) !== suiteId || !result.complete || !result.connected ||
+                (result.appliedCategory ?? '') !== (category ?? '') || (result.appliedOutcome ?? '') !== (outcome ?? '')) {
                 throw new Error('Backend returned an incomplete or mismatched analytics scope.');
             }
             return result;
         },
         dsrPeriod: (signal: AbortSignal) => get<ReportingWindow>('/reporting/dsr-period', signal),
         period: (preset: string, signal: AbortSignal) => get<ReportingWindow>(`/reporting/period?preset=${encodeURIComponent(preset)}`, signal),
-        activity: (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal) => {
+        activity: (planId: number, suiteId: number | null, from: string, to: string, baselineFrom: string, tester: string, signal: AbortSignal, category?: string, outcome?: string) => {
             const query = new URLSearchParams({ from, to, baselineFrom });
+            if (category) query.set('category', category);
+            if (outcome) query.set('outcome', outcome);
             if (suiteId != null) query.set('suiteId', String(suiteId));
             if (tester) query.set('tester', tester);
             return get<ExecutionIntelligence>(`/v2/activity/${planId}?${query}`, signal);

@@ -37,18 +37,18 @@ public sealed class ReportStore
         JsonSerializer.SerializeToUtf8Bytes(report with { Checksum = "" }, Json)));
 }
 
-public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceEvidenceService evidence, ReportStore store)
+public sealed class ReportService(WorkspaceEvidenceService evidence, ReportStore store)
 {
     public async Task<ReportSnapshot> CreateAsync(ReportRequest request, CancellationToken ct)
     {
         if (request.Kind is not ("DSR" or "TCR")) throw new ArgumentException("Choose DSR or TCR.");
         var window = ReportingScope.Window(request.From, request.To);
         var baseline = ReportingScope.Instant(request.BaselineFrom);
-        var bundle = await evidence.LoadAsync(request.PlanId, request.SuiteId, window, baseline, request.Tester, ct);
-        var current = string.IsNullOrEmpty(request.Tester) ? bundle.Snapshot : await analytics.GetAnalyticsAsync(request.PlanId, ct, request.SuiteId, request.Tester);
+        var bundle = await evidence.LoadAsync(request.PlanId, request.SuiteId, window, baseline, request.Tester, ct, request.Category, request.Outcome);
+        var current = string.IsNullOrEmpty(request.Tester) ? bundle.Snapshot : ScopeProjector.Project(bundle.Snapshot, request.SuiteId, request.Tester, request.Category, request.Outcome);
         var activity = bundle.Activity;
         var narrative = (request.Narrative ?? []).Where(p => p.Key.Length <= 60).ToDictionary(p => p.Key, p => p.Value.Length <= 4000 ? p.Value : p.Value[..4000]);
-        var report = new ReportSnapshot(Guid.NewGuid(), request.Kind, DateTimeOffset.UtcNow, "v2-2026-10-20.2",
+        var report = new ReportSnapshot(Guid.NewGuid(), request.Kind, DateTimeOffset.UtcNow, "v2-2026-10-21.3",
             "Draft — awaiting corporate reconciliation and historical cutoff evidence", "Local ADO collection", "", current, activity, narrative,
             ["Current point snapshot is at collection time, NOT a reconstructed historical cutoff snapshot.",
              "Frozen export can reproduce this draft; authoritative historical DSR requires approved preserved data.",
@@ -56,7 +56,9 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
              "Reports are held in memory for 60 minutes / at most 25 reports. Export the evidence bundle to approved storage.",
              "No report is emailed, release signed off, or infrastructure provisioned automatically.",
              "Defect, coverage and verification evidence may be unavailable and is not reported as zero."])
-            { Quality = bundle.Quality };
+            { Quality = bundle.Quality, Scope = new(current.AppliedCategory, current.AppliedOutcome, request.Tester, request.Preset,
+                request.ReleaseReference, current.RetrievedAt, window.To, "Unavailable — no authenticated point-state snapshot captured at the requested cutoff",
+                "Current plan/suite/category/outcome membership; historical membership is not reconstructed") };
         return store.Put(report with { Checksum = ReportStore.Hash(report) });
     }
 
@@ -67,7 +69,7 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
             report.Activity.Events == null || report.Activity.Points == null || report.Activity.Productivity == null || report.Activity.Daily == null ||
             report.Narrative == null || report.Limitations == null || report.CurrentSnapshot.Points.Count > 50000 || report.Activity.Events.Count > 100000)
             throw new ArgumentException("Incomplete or oversized evidence structure.");
-        if (report.CalculationVersion is not ("v2-2026-10-20.1" or "v2-2026-10-20.2") || report.Checksum != ReportStore.Hash(report))
+        if (report.CalculationVersion is not ("v2-2026-10-20.1" or "v2-2026-10-20.2" or "v2-2026-10-21.3") || report.Checksum != ReportStore.Hash(report))
             throw new ArgumentException("Evidence checksum or schema version is invalid.");
         // Imports never establish trusted source/validation, even if the original claimed it.
         var copy = report with { Id = Guid.NewGuid(), Status = "Draft — imported evidence, untrusted source",
@@ -85,18 +87,30 @@ public sealed class ReportService(FrontierAnalyticsService analytics, WorkspaceE
                 ["Created UTC", r.CreatedAt.ToString("O")], ["Current source UTC", r.CurrentSnapshot.RetrievedAt.ToString("O")],
                 ["Period from", r.Activity.Window.From.ToString("O")], ["Period to exclusive", r.Activity.Window.To.ToString("O")],
                 ["Baseline", r.Activity.Baseline.From.ToString("O")], ["Timezone", "Europe/London"], ["Rules", r.CalculationVersion], ["Checksum", r.Checksum],
+                ["Testing category", r.Scope?.Category ?? "All"], ["Current outcome filter", r.Scope?.Outcome ?? "All"], ["Tester", r.Scope?.Tester ?? "All"],
+                ["Release reference", r.Scope?.ReleaseReference ?? "Not supplied"], ["Historical as-of status", r.Scope?.HistoricalAsOfStatus ?? "Unavailable"],
+                ["Membership basis", r.Scope?.MembershipBasis ?? "Current membership; historical membership unavailable"],
                 ..r.Narrative.Select(p => new string?[] { p.Key, p.Value }), ..r.Limitations.Select(text => new string?[] { "Limitation", text })]),
             new("Business KPIs", ["Metric", "Value", "Unit and scope"], [
                 ["Total Test Cases", S(r.CurrentSnapshot.CaseMetrics?.TotalTestCases), "Distinct case IDs; missing mappings withhold totals"],
                 ["Executed Test Cases", S(r.CurrentSnapshot.CaseMetrics?.ExecutedTestCases), "Cases with at least one current executed point, including N/A"],
                 ["Execution Coverage %", S(r.CurrentSnapshot.CaseMetrics?.ExecutionCoverage), "Case-based; executed cases / total cases"],
-                ["Re-executed Test Cases", S(r.Activity.CaseRetesting?.ReExecutedTestCases), "Distinct cases with a repeated point in historical baseline"],
+                ["Re-executed Points", S(r.Activity.Reexecution?.ReexecutedTestPoints), "Distinct repeated test points in selected activity range; ADO Progress Report terminology"],
+                ["Repeat Execution Events", S(r.Activity.Reexecution?.AdditionalAttempts), "Additional attempts within selected activity range"],
+                ["Baseline Re-executed Points", S(r.Activity.BaselineReexecution?.ReexecutedTestPoints), "Distinct repeated test points over release/repeat baseline"],
+                ["Baseline Repeat Events", S(r.Activity.BaselineReexecution?.AdditionalAttempts), "Additional attempts over release/repeat baseline"],
+                ["Distinct Re-executed Case IDs", S(r.Activity.CaseRetesting?.ReExecutedTestCases), "Legacy distinct-case baseline metric; not the ADO point KPI"],
                 ["Total Defects", S(r.Quality?.TotalLinkedDefects), "Distinct scoped linked Bugs; not project-wide"],
                 ["Open Defects", S(r.Quality?.OpenLinkedDefects), "Inspected categories other than Completed/Removed"],
                 ["Completed Defects", S(r.Quality?.CompletedLinkedDefects), "Inspected Completed category"]]),
             new("Execution snapshot", ["Point outcome category", "Point count"], [..m.Statuses.Select(p => new string?[] { p.Key, S(p.Value) }),
                 ["Total unique points", S(m.Total)], ["Primary pass %", S(m.PrimaryPassRate)], ["Secondary pass %", S(m.SecondaryPassRate)],
-                ["Progress %", S(m.ExecutionRate)], ["Re-executed baseline points", S(r.Activity.ReExecutedPoints)], ["Period repeat events", S(r.Activity.RepeatEvents)]]),
+                ["Progress %", S(m.ExecutionRate)], ["Re-executed baseline points", S(r.Activity.ReExecutedPoints)], ["Period repeat events", r.Activity.Complete ? S(r.Activity.RepeatEvents) : "Incomplete"]]),
+            new("Suite hierarchy", ["Suite ID", "Parent suite ID", "Suite", "ADO suite type", "Requirement ID", "Own points", "Subtree points"],
+                r.CurrentSnapshot.Suites.Select(s => new string?[] { S(s.SuiteId), S(s.ParentSuiteId), s.SuiteName, s.SuiteType, S(s.RequirementId), S(s.Metrics.Total), S(s.SubtreeMetrics?.Total) }).ToList()),
+            new("Reexecution drilldown", ["Point ID", "Case ID", "Title", "Suite", "Executions", "Additional attempts", "Run ID", "Result ID", "Completed UTC", "Outcome", "Actual tester"],
+                (r.Activity.Reexecution?.Points ?? []).SelectMany(p => p.Attempts.Select(a => new string?[] { S(p.PointId), S(p.TestCaseId), p.Title,
+                    string.Join("; ", p.Suites.Select(s => s.SuitePath)), S(p.ExecutionCount), S(p.ReexecutionCount), S(a.RunId), S(a.ResultId), a.CompletedAt?.ToString("O"), a.Outcome, a.Performer?.DisplayName ?? "Unattributed" })).ToList()),
             new("Live TCM", ["Point ID", "Case ID", "Title", "Suite path", "Configuration", "Assigned", "Latest performer", "Latest date UTC", "Latest outcome", "Baseline executions", "Baseline repeats", "Plan ID", "Bug IDs", "Bug state", "Bug severity / priority", "Test priority", "Requirements", "Evidence"],
                 r.CurrentSnapshot.Points.Select(p => { var count = r.Activity.Points.SingleOrDefault(a => a.PointId == p.Id);
                     var testCase = r.Quality?.Cases.FirstOrDefault(c => c.CaseId == p.TestCaseId);

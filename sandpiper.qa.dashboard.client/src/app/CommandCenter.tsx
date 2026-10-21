@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { buildSuiteTree, type BackendClient, type PlanAnalytics, type WorkspaceEvidence } from '../services/adoApi';
 import type { AdoTestPlan } from '../types/ado';
-import { initialContext, changePlan, pointRows, suiteRows, suiteOptions, matchesOutcome } from './ReportingContext';
+import { initialContext, changePlan, confirmRelease, pointRows, suiteRows, suiteOptions, matchesOutcome } from './ReportingContext';
 import DataTable, { type Column, type DataRow } from '../components/DataTable';
 import TestSuiteTree from '../components/TestSuiteTree';
 import ActivityPanel from '../components/ActivityPanel';
@@ -19,6 +19,7 @@ const secondary = ['Data Reconciliation', 'Audit History', 'Settings'];
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Request unavailable';
 const tcmColumns: Column[] = [
     ['pointId', 'Point ID'], ['caseId', 'Case ID'], ['title', 'Test case title'], ['suitePath', 'Suite path'],
+    ['category', 'Testing category'],
     ['configuration', 'Configuration'], ['assigned', 'Assigned tester'], ['performer', 'Latest executed by'],
     ['outcome', 'Latest outcome'], ['latestDate', 'Latest execution date'], ['plan', 'Test plan'],
     ['executionCount', 'Execution count'], ['repeatCount', 'Repeat count'], ['bugIds', 'Linked bug IDs'],
@@ -61,12 +62,12 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
     useEffect(() => {
         if (!context.planId) return;
         const controller = new AbortController();
-        void api.analytics(context.planId, context.suiteId, controller.signal, context.tester).then(data => {
+        void api.analytics(context.planId, context.suiteId, controller.signal, context.tester, context.category, context.outcome).then(data => {
             if (controller.signal.aborted) return;
             setSnapshot(data); setError(null);
         }).catch(cause => { if (!controller.signal.aborted) setError(errorText(cause)); });
         return () => controller.abort();
-    }, [api, context.planId, context.suiteId, context.tester, refresh]);
+    }, [api, context.planId, context.suiteId, context.tester, context.category, context.outcome, refresh]);
     useEffect(() => {
         if (!context.planId) return;
         const c = new AbortController();
@@ -78,7 +79,8 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
         if (context.preset === 'Custom Range' || context.preset === 'Release-to-Date') return;
         const controller = new AbortController();
         void api.period(context.preset, controller.signal).then(window => {
-            if (!controller.signal.aborted) setContext(c => ({ ...c, ...window, baselineFrom: c.baselineFrom || window.from }));
+            if (!controller.signal.aborted) setContext(c => ({ ...c, ...window,
+                baselineFrom: c.baselineExplicit || c.releaseConfirmed ? c.baselineFrom : window.from }));
         }).catch(cause => { if (!controller.signal.aborted) setError(errorText(cause)); });
         return () => controller.abort();
     }, [api, context.preset]);
@@ -129,15 +131,31 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
                     ...[...testers.values()].map(t => ({ value: t.key, label: t.displayName }))]} loading={!!context.planId && !catalog && !catalogError} error={catalogError}
                     onChange={value => { invalidate(); setContext({ ...context, tester: value }); }} />
                 <label>Reporting period<select value={context.preset} onChange={e => setContext({ ...context, preset: e.target.value,
-                    ...(e.target.value === 'Release-to-Date' ? { from: context.baselineFrom, to: new Date().toISOString() } : {}) })}>
-                    {['Today', 'Yesterday', 'Last 7 Days', 'Custom Range', 'Release-to-Date'].map(p => <option key={p}>{p}</option>)}</select>
+                    ...(e.target.value === 'Release-to-Date' ? { from: '', baselineFrom: '', releaseConfirmed: false, to: new Date().toISOString() } :
+                        e.target.value === 'Custom Range' ? { baselineFrom: context.baselineExplicit ? context.baselineFrom : context.from } : {}) })}>
+                    {['Today', 'Yesterday', 'Last 7 Days', 'Last Month', 'Last 2 Months', 'Custom Range', 'Release-to-Date'].map(p => <option key={p} value={p}>{p === 'Custom Range' ? 'Custom Date' : p}</option>)}</select>
                     <small>{cutoff ?? 'Configured'} UK cutoff · Europe/London</small></label>
+                <SearchableCombobox label="Testing Category" value={context.category ?? ''} options={[{ value: '', label: 'All testing categories' },
+                    ...(catalog?.availableCategories ?? [...new Set((catalog?.points ?? []).flatMap(p => p.testingCategories ?? ['Unclassified']))]).map(c => ({ value: c, label: c }))]}
+                    loading={!!context.planId && !catalog && !catalogError} error={catalogError} onChange={value => { invalidate(); setContext({ ...context, category: value }); }} />
+                <SearchableCombobox label="Outcome" value={context.outcome ?? ''} options={[{ value: '', label: 'All current outcomes' },
+                    ...Object.keys(catalog?.metrics.statuses ?? {}).sort().map(c => ({ value: c, label: c }))]}
+                    loading={!!context.planId && !catalog && !catalogError} error={catalogError} onChange={value => { invalidate(); setContext({ ...context, outcome: value }); }} />
                 <button className="primary-button" onClick={() => { void api.refresh(new AbortController().signal).then(() => { invalidate(); setEvidence(null); setEvidenceError(null); setRefresh(r => r + 1); }).catch(e => setError(errorText(e))); }}>↻ Refresh</button></div>
-            <div className="period-fields"><label>From (inclusive, ISO offset)<input value={context.from} onChange={e => setContext({ ...context, preset: 'Custom Range', from: e.target.value })} /></label>
-                <label>To (exclusive, ISO offset)<input value={context.to} onChange={e => setContext({ ...context, preset: 'Custom Range', to: e.target.value })} /></label>
-                <label>Repeat baseline start<input value={context.baselineFrom} placeholder="Explicit baseline, ISO offset" onChange={e => setContext({ ...context, baselineFrom: e.target.value })} /></label></div>
+            <div className="period-fields"><label>From (inclusive, ISO offset)<input disabled={context.preset === 'Release-to-Date'} value={context.from} onChange={e => setContext({ ...context, preset: 'Custom Range', from: e.target.value,
+                baselineFrom: context.baselineExplicit || context.releaseConfirmed ? context.baselineFrom : e.target.value })} /></label>
+                <label>To (exclusive, ISO offset)<input value={context.to} onChange={e => setContext({ ...context, to: e.target.value,
+                    ...(context.preset === 'Release-to-Date' ? {} : { preset: 'Custom Range', baselineFrom: context.baselineExplicit ? context.baselineFrom : context.from }) })} /></label>
+                <label>Repeat baseline start<input disabled={context.preset === 'Release-to-Date'} value={context.baselineFrom} placeholder="Explicit baseline, ISO offset" onChange={e => setContext({ ...context, baselineFrom: e.target.value, baselineExplicit: true })} /></label></div>
+            {context.preset === 'Release-to-Date' && <section className="period-fields" aria-label="Authoritative release scope">
+                <label>Authoritative release start (ISO offset)<input value={context.releaseStart ?? ''} onChange={e => setContext({ ...context, releaseStart: e.target.value, releaseConfirmed: false, from: '', baselineFrom: '' })} /></label>
+                <label>Release source/reference<input value={context.releaseReference ?? ''} onChange={e => setContext({ ...context, releaseReference: e.target.value, releaseConfirmed: false, from: '', baselineFrom: '' })} /></label>
+                <button onClick={() => { try { setContext(confirmRelease(context)); setError(null); } catch (cause) { setError(errorText(cause)); } }}>Confirm release scope</button>
+                <p role="status">{context.releaseConfirmed ? `Confirmed source: ${context.releaseReference}. End is the displayed exclusive cutoff; refresh the end explicitly to extend it.` : 'Release start is not inferred from the plan or repeat baseline. Confirm the authoritative date and reference before loading history.'}</p>
+            </section>}
         </header>
         <main className="cc-content"><div className="trust-banner" role="status">Awaiting corporate data reconciliation. Current metrics are provisional; period activity is separate from latest point state.
+            <small>Category: {context.category || 'All'} · current outcome: {context.outcome || 'All'}. Historical activity uses current selected suite/category/outcome membership, not reconstructed past membership. A historical as-of point snapshot is unavailable unless separately preserved.</small>
             {snapshot && <small>Collected {new Date(snapshot.retrievedAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })} UK · {snapshot.rulesVersion} · {snapshot.suiteCount} suites · cache age at response {Math.round(snapshot.cacheAgeSeconds ?? 0)}s</small>}</div>
             {error && <p role="alert" className="error">{error} <button onClick={() => setRefresh(r => r + 1)}>Retry</button></p>}
             {scopedEvidenceError && module !== 'Overview' && <p className="evidence-warning">Additional evidence could not be loaded. See the module error; current point state remains separate.</p>}
@@ -165,6 +183,7 @@ export default function CommandCenter({ api }: { api: BackendClient }) {
             {snapshot && module === 'Test Explorer' && <div className="panel-grid"><section className="cc-panel"><h2>Suite hierarchy</h2><TestSuiteTree suites={buildSuiteTree(snapshot.suites)} /></section>
                 <section className="cc-panel"><h2>Own-suite and subtree counts</h2><DataTable name="explorer suites" rows={suiteRows(snapshot)} columns={[
                     { key: 'id', label: 'Suite ID' }, { key: 'name', label: 'Suite' }, { key: 'own', label: 'Own points' }, { key: 'subtree', label: 'Subtree points' }, { key: 'progress', label: 'Progress %' },
+                    { key: 'suiteType', label: 'ADO suite type' }, { key: 'requirementId', label: 'Requirement / story ID', render: row => row.requirementId && snapshot.sourceBaseUrl ? <a href={`${snapshot.sourceBaseUrl}/_workitems/edit/${Number(row.requirementId)}`} target="_blank" rel="noreferrer">{String(row.requirementId)} ↗</a> : 'Unavailable' },
                 ]} onSelect={row => { invalidate(); setContext({ ...context, suiteId: Number(row.id) }); }} /></section><section className="cc-panel full-width"><h2>Test cases in selected scope</h2>
                     <DataTable name="explorer cases" rows={rows} columns={linkedColumns} onSelect={setDetail} /></section></div>}
             {snapshot && module === 'Live TCM' && <section className="cc-panel"><div className="section-title"><h2>Live Test Case Matrix</h2><span>Read-only ADO source records</span></div>

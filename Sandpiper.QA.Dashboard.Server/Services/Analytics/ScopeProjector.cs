@@ -3,7 +3,7 @@ using Sandpiper.QA.Dashboard.Server.Models;
 namespace Sandpiper.QA.Dashboard.Server.Services.Analytics;
 public static class ScopeProjector
 {
-    public static PlanAnalytics Project(PlanAnalytics full, int? selected, string? tester)
+    public static PlanAnalytics Project(PlanAnalytics full, int? selected, string? tester, string? category = null, string? outcome = null)
     {
         if (selected != null && !full.Suites.Any(s => s.SuiteId == selected)) throw new ArgumentException("Suite is not in selected plan.");
         HashSet<int> Descendants(int root)
@@ -14,9 +14,13 @@ public static class ScopeProjector
             return ids;
         }
         var included = selected == null ? full.Suites.Select(s => s.SuiteId).ToHashSet() : Descendants(selected.Value);
-        var points = full.Points.Where(p => p.Memberships.Any(m => included.Contains(m.SuiteId)) &&
+        category = string.IsNullOrWhiteSpace(category) ? null : category.Trim();
+        outcome = string.IsNullOrWhiteSpace(outcome) ? null : KpiCalculator.Normalize(outcome);
+        bool Member(PointMembership m) => included.Contains(m.SuiteId) && (category == null || (m.TestingCategory ?? "Unclassified") == category);
+        var points = full.Points.Where(p => (outcome == null || KpiCalculator.Normalize(p.Outcome) == outcome) && p.Memberships.Any(Member) &&
             (string.IsNullOrEmpty(tester) || (p.AssignedTester?.Key ?? "unattributed") == tester))
-            .Select(p => p with { Memberships = p.Memberships.Where(m => included.Contains(m.SuiteId)).ToArray() }).ToArray();
+            .Select(p => p with { Memberships = p.Memberships.Where(Member).ToArray(),
+                TestingCategories = p.Memberships.Where(Member).Select(m => m.TestingCategory ?? "Unclassified").Distinct().Order().ToArray() }).ToArray();
         var suites = full.Suites.Where(s => included.Contains(s.SuiteId)).Select(s =>
         {
             var descendants = Descendants(s.SuiteId);
@@ -24,6 +28,7 @@ public static class ScopeProjector
                 SubtreeMetrics = KpiCalculator.Calculate(points.Where(p => p.Memberships.Any(m => descendants.Contains(m.SuiteId)))) };
         }).ToArray();
         return full with { SuiteId = selected, Points = points, Suites = suites, SuiteCount = suites.Length,
+            AppliedCategory = category, AppliedOutcome = outcome,
             Metrics = KpiCalculator.Calculate(points), CaseMetrics = CaseCalculator.Current(points), Reconciliation = TestPointNormalizer.Reconcile(points),
             Assignments = points.GroupBy(p => p.AssignedTester?.Key ?? "unattributed").Select(g => {
                 var metrics = KpiCalculator.Calculate(g);

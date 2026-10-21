@@ -39,7 +39,7 @@ export default function OperationsPanel({ api, mode, snapshot, context }: {
             <p>Enter ADO Progress Report counts captured for the same plan, subtree, tester and retrieval time. This compares your reference; it does not independently certify corporate accuracy.</p>
             <div className="period-fields">{Object.entries(counts).map(([key, value]) => <label key={key}>{key}<input type="number" min="0" value={value} onChange={e => setCounts({ ...counts, [key]: e.target.value })} /></label>)}</div>
             <button disabled={Object.values(counts).some(v => !/^\d+$/.test(v))} onClick={() => {
-                void api.reconcile(snapshot.planId, context.suiteId, context.tester, Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, Number(v)])), new AbortController().signal)
+                void api.reconcile(snapshot.planId, context.suiteId, context.tester, Object.fromEntries(Object.entries(counts).map(([k, v]) => [k, Number(v)])), new AbortController().signal, context.category, context.outcome)
                     .then(result => { setComparison(result.differences); setMessage(result.status); }).catch(fail);
             }}>Compare reference counts</button>
             <DataTable name="reference comparison" rows={comparison} columns={['category', 'source', 'reference', 'difference'].map(key => ({ key, label: key }))} />

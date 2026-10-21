@@ -23,13 +23,13 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
         ado.ListAsync($"testplan/Plans/{Positive(planId)}/Suites/{Positive(suiteId)}/TestPoint", ct);
 
     public async Task<PlanAnalytics> GetAnalyticsAsync(int planId, CancellationToken ct = default,
-        int? suiteId = null, string? tester = null)
+        int? suiteId = null, string? tester = null, string? category = null, string? outcome = null)
     {
         Positive(planId);
         var key = cache == null ? "" : await ado.ScopeKeyAsync(ct) + $":plan:{planId}";
         var full = cache == null ? await CollectAnalyticsAsync(planId, ct) : await cache.GetAsync(key,
             TimeSpan.FromSeconds(options.Value.CacheSeconds), token => CollectAnalyticsAsync(planId, token), ct);
-        return ScopeProjector.Project(full, suiteId, tester) with { CacheAgeSeconds = Math.Max(0, (DateTimeOffset.UtcNow - full.RetrievedAt).TotalSeconds) };
+        return ScopeProjector.Project(full, suiteId, tester, category, outcome) with { CacheAgeSeconds = Math.Max(0, (DateTimeOffset.UtcNow - full.RetrievedAt).TotalSeconds) };
     }
 
     private async Task<PlanAnalytics> CollectAnalyticsAsync(int planId, CancellationToken ct)
@@ -47,10 +47,11 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
         var descendants = snapshot.Suites.ToDictionary(s => s.Id, s => Descendants(s.Id));
         var suites = snapshot.Suites.Select(suite => new SuiteAnalytics(suite.Id, suite.Name,
             suite.ParentId, KpiCalculator.Calculate(snapshot.Points[suite.Id]))
-            { SubtreeMetrics = KpiCalculator.Calculate(snapshot.Points.Where(p => descendants[suite.Id].Contains(p.Key)).SelectMany(p => p.Value)) }).ToList();
+            { RequirementId = suite.RequirementId, SuiteType = suite.Type,
+              SubtreeMetrics = KpiCalculator.Calculate(snapshot.Points.Where(p => descendants[suite.Id].Contains(p.Key)).SelectMany(p => p.Value)) }).ToList();
         var points = TestPointNormalizer.Merge(snapshot.Points.Values.SelectMany(p => p));
-        return new(planId, null, metrics, suites, suites.Count, DateTimeOffset.UtcNow)
-        { Points = points, Reconciliation = TestPointNormalizer.Reconcile(points), SourceBaseUrl = options.Value.BaseUrl };
+        return SuiteCategoryClassifier.Apply(new(planId, null, metrics, suites, suites.Count, DateTimeOffset.UtcNow)
+        { Points = points, Reconciliation = TestPointNormalizer.Reconcile(points), SourceBaseUrl = options.Value.BaseUrl }, options.Value.SuiteCategories);
     }
 
     public async Task<object> GetReexecutionAsync(int planId, int? suiteId,
@@ -74,7 +75,7 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
                 var date = AzureDevOpsClient.Text(result, "completedDate");
                 attempts.Add(new(runId, AzureDevOpsClient.Number(result, "id"), pointId > 0 ? pointId : null,
                     AzureDevOpsClient.Text(result, "outcome"), AzureDevOpsClient.Text(result, "state"),
-                    DateTimeOffset.TryParse(date, out var completedAt) ? completedAt : null));
+                    TestPointNormalizer.ExecutionDate(date)));
             }
         }
         return new { planId, suiteId, metrics = KpiCalculator.Reexecution(attempts, points, window),
@@ -136,7 +137,9 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
             var parentId = AzureDevOpsClient.Number(reference, "id");
             if (parentId > 0) parent = parentId;
         }
-        var suite = new SuiteInfo(id, AzureDevOpsClient.Text(element, "name") ?? "", parent);
+        var requirement = AzureDevOpsClient.Number(element, "requirementId");
+        var suite = new SuiteInfo(id, AzureDevOpsClient.Text(element, "name") ?? "", parent,
+            requirement > 0 ? requirement : null, AzureDevOpsClient.Text(element, "suiteType"));
         if (suites.TryGetValue(id, out var existing) && existing != suite)
             throw new InvalidDataException("Conflicting suite metadata.");
         suites[id] = suite;
@@ -145,6 +148,6 @@ public sealed class FrontierAnalyticsService(AzureDevOpsClient ado, IOptions<Azu
     }
 
     private static int Positive(int value) => value > 0 ? value : throw new ArgumentException("Invalid plan or suite ID.");
-    private record SuiteInfo(int Id, string Name, int? ParentId);
+    private record SuiteInfo(int Id, string Name, int? ParentId, int? RequirementId, string? Type);
     private record ScopeSnapshot(List<SuiteInfo> Suites, Dictionary<int, List<NormalizedPoint>> Points);
 }

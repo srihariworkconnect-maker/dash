@@ -13,13 +13,17 @@ public static class ExecutionCalculator
     {
         if (baselineFrom > window.From || window.From >= window.To) throw new ArgumentException("Baseline must start no later than the activity window.");
         var ids = points.Select(p => p.Id).ToHashSet();
-        var all = source.GroupBy(e => e.Key).Select(g =>
+        var raw = source.ToArray();
+        var selectedReport = ReexecutionCalculator.Calculate(raw, points, window, tester);
+        var baselineReport = baselineFrom == window.From ? selectedReport :
+            ReexecutionCalculator.Calculate(raw, points, new(baselineFrom, window.To), tester);
+        var all = raw.GroupBy(e => (e.RunId, e.ResultId)).Select(g =>
         {
             var first = g.First();
             if (g.Any(e => e.RunId != first.RunId || e.ResultId != first.ResultId || e.PointId != first.PointId ||
-                e.Outcome != first.Outcome || e.CompletedAt != first.CompletedAt || e.Performer?.Key != first.Performer?.Key))
+                e.Outcome != first.Outcome || e.State != first.State || e.CompletedAt != first.CompletedAt || e.Performer?.Key != first.Performer?.Key))
                 throw new InvalidDataException("Conflicting execution identities.");
-            return first with { IsRepeat = false, Transition = null };
+            return first with { Key = $"{first.RunId}:{first.ResultId}", IsRepeat = false, Transition = null };
         }).Where(e => e.PointId == null || ids.Contains(e.PointId.Value)).ToList();
         var missingDates = all.Count(e => e.Qualifies && e.CompletedAt == null);
         var baseline = all.Where(e => e.CompletedAt >= baselineFrom && e.CompletedAt < window.To).ToList();
@@ -59,7 +63,7 @@ public static class ExecutionCalculator
             .Select(e => annotated[e.Key]).GroupBy(e => e.PointId!.Value)
             .Select(g => new PointActivity(g.Key, g.Count(), g.Count(e => e.IsRepeat))).ToList();
         var review = HistoryEvidenceEvaluator.Assess(points, all, new(baselineFrom, window.To));
-        var complete = missingDates == 0 && missingLinks == 0 && review.State == "Verified";
+        var complete = missingDates == 0 && missingLinks == 0 && review.State == "Verified" && baselineReport.State == "Verified";
         return new(window, new(baselineFrom, window.To), events, productivity, daily, pointCounts,
             complete ? pointCounts.Count(p => p.ExecutionCount > 1) : null,
             qualifying.Count(e => e.IsRepeat), qualifying.Select(e => e.PointId).Distinct().Count(),
@@ -68,7 +72,8 @@ public static class ExecutionCalculator
              "Current point membership is used. Missing identity is unattributed; missing history is not zero.",
              "Assigned/pending counts are current state, not historical daily assignment.",
              "Equal-time records count as distinct attempts but do not establish transition chronology.", ..review.Reasons])
-            { Evidence = new(complete ? "Verified" : "Incomplete", [..review.Reasons,
+            { Reexecution = selectedReport, BaselineReexecution = baselineReport,
+              Evidence = new(complete ? "Verified" : "Incomplete", [..review.Reasons,
                 ..(missingDates > 0 ? new[] { "Qualifying results are missing execution timestamps." } : []),
                 ..(missingLinks > 0 ? new[] { "Qualifying results are missing test-point links." } : [])]),
               CaseRetesting = CaseCalculator.Retesting(points, pointCounts, baseline.Where(Matches).ToArray(), complete) };

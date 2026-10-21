@@ -49,11 +49,14 @@ public static class ReportExporter
     private static string Clean(string text) => string.Concat(text.Where(c => !char.IsControl(c) || c is '\n' or '\r' or '\t'));
 
     public static byte[] Pdf(ReportSnapshot report)
+        => PdfTables(ReportService.Tables(report), $"Sandpiper {report.Kind} evidence draft", report.CreatedAt, report.Status);
+
+    public static byte[] PdfTables(IReadOnlyList<ReportTable> tables, string title, DateTimeOffset createdAt, string status)
     {
         _ = Fonts.Value;
         using var document = new PdfDocument();
-        document.Info.Title = $"Sandpiper {report.Kind} evidence draft";
-        document.Info.CreationDate = report.CreatedAt.UtcDateTime;
+        document.Info.Title = title;
+        document.Info.CreationDate = createdAt.UtcDateTime;
         var font = new XFont("Arial", 9, XFontStyleEx.Regular);
         XGraphics? graphics = null;
         double y = 0;
@@ -77,8 +80,8 @@ public static class ReportExporter
                 } while (remaining.Length > 0);
             }
         }
-        Line($"SANDPIPER QA COMMAND CENTER — {report.Kind}"); Line(report.Status);
-        foreach (var table in ReportService.Tables(report))
+        Line(title); Line(status);
+        foreach (var table in tables)
         {
             Line(""); Line(table.Name.ToUpperInvariant()); Line(string.Join(" | ", table.Columns));
             foreach (var row in table.Rows) Line(string.Join(" | ", row.Select(v => v ?? "Unavailable")));

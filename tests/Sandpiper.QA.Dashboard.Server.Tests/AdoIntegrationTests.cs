@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using Azure.Core;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Logging;
 using Sandpiper.QA.Dashboard.Server.Services;
 using Xunit;
 
@@ -9,6 +10,30 @@ namespace Sandpiper.QA.Dashboard.Server.Tests;
 
 public class AdoIntegrationTests
 {
+    private sealed class SafeLogger : ILogger<AzureDevOpsClient>
+    {
+        public List<string> Messages { get; } = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => true;
+        public void Log<TState>(LogLevel level, EventId id, TState state, Exception? error,
+            Func<TState, Exception?, string> formatter) => Messages.Add(formatter(state, error));
+    }
+
+    [Fact]
+    public async Task FailureDiagnosticsDoNotLogUpstreamBodiesOrAccessTokens()
+    {
+        var options = Options.Create(new AzureDevOpsOptions { Organization = "fixture", Project = "fixture" });
+        var logger = new SafeLogger();
+        var client = new AzureDevOpsClient(new HttpClient(new Handler(_ => new(HttpStatusCode.Forbidden)
+            { Content = new StringContent("CONFIDENTIAL_SYNTHETIC_ERROR_CONTENT") })),
+            new Credential(), options, new AdoRequestGate(options), logger);
+        await Assert.ThrowsAsync<HttpRequestException>(() => client.ListAsync("test/runs", default));
+        var logged = string.Join("\n", logger.Messages);
+        Assert.Contains("403", logged);
+        Assert.DoesNotContain("CONFIDENTIAL_SYNTHETIC_ERROR_CONTENT", logged);
+        Assert.DoesNotContain("test-fixture", logged);
+    }
+
     private sealed class Credential : TokenCredential
     {
         public override AccessToken GetToken(TokenRequestContext context, CancellationToken ct) => new("test-fixture", DateTimeOffset.MaxValue);
@@ -118,5 +143,33 @@ public class AdoIntegrationTests
         });
         var result = await client.HistoryAsync("test/runs", [], default);
         Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public async Task ResultPaginationDeduplicatesOverlappingPages()
+    {
+        var calls = 0;
+        var client = Client(request =>
+        {
+            Assert.EndsWith("/test/Runs/7/results", request.RequestUri!.AbsolutePath);
+            return ++calls switch
+            {
+                1 => Json("""{"value":[{"id":1},{"id":2}]}"""),
+                2 => Json("""{"value":[{"id":2},{"id":3}]}"""),
+                _ => Json("""{"value":[]}""")
+            };
+        });
+        var results = await client.HistoryAsync("test/Runs/7/results", [], default);
+        Assert.Equal(3, results.Count); Assert.Equal(3, calls);
+    }
+
+    [Fact]
+    public async Task ChangingResultAcrossPagesFailsWithoutPartialHistory()
+    {
+        var calls = 0;
+        var client = Client(_ => ++calls == 1
+            ? Json("""{"value":[{"id":1,"outcome":"Failed"}]}""")
+            : Json("""{"value":[{"id":1,"outcome":"Passed"}]}"""));
+        await Assert.ThrowsAsync<InvalidDataException>(() => client.HistoryAsync("test/Runs/7/results", [], default));
     }
 }
