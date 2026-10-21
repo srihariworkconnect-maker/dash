@@ -65,6 +65,28 @@ public class AdoIntegrationTests
         await Assert.ThrowsAsync<InvalidDataException>(() => client.ListAsync("testplan/plans", default));
     }
 
+    private sealed class HangingCredential : TokenCredential
+    {
+        public override AccessToken GetToken(TokenRequestContext context, CancellationToken ct) =>
+            GetTokenAsync(context, ct).AsTask().GetAwaiter().GetResult();
+        public override async ValueTask<AccessToken> GetTokenAsync(TokenRequestContext context, CancellationToken ct)
+        {
+            await Task.Delay(Timeout.Infinite, ct);
+            return new("never", DateTimeOffset.MaxValue);
+        }
+    }
+
+    [Fact]
+    public async Task StalledTokenAcquisitionFailsExplicitlyInsteadOfHangingForever()
+    {
+        var options = Options.Create(new AzureDevOpsOptions { Organization = "fixture", Project = "fixture", TokenTimeoutSeconds = 1 });
+        var client = new AzureDevOpsClient(new HttpClient(new Handler(_ => Json("{\"value\":[]}"))),
+            new HangingCredential(), options, new AdoRequestGate(options));
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAsync<TimeoutException>(() => client.ListAsync("testplan/plans", default));
+        Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(15), "Token acquisition must fail under the configured bound, not hang.");
+    }
+
     [Theory]
     [InlineData(819259)]
     [InlineData(839718)]

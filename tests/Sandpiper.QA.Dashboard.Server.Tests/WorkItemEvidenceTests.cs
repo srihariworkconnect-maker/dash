@@ -77,4 +77,35 @@ public class WorkItemEvidenceTests
         var unknownState = await service.LoadAsync(snapshot, [execution], new(start, start.AddDays(1)), null, default);
         Assert.Equal(1, unknownState.TotalLinkedDefects); Assert.Null(unknownState.OpenLinkedDefects); Assert.Null(unknownState.CompletedLinkedDefects);
     }
+
+    [Fact]
+    public async Task RelationTypesUseOrganizationScopeWhileProjectApisKeepProjectSegment()
+    {
+        var urls = new Dictionary<string, string>();
+        var service = Service(request =>
+        {
+            var absolute = request.RequestUri!.AbsolutePath;
+            var path = absolute.Split("/_apis/")[1];
+            urls[path] = absolute;
+            return path switch
+            {
+                "wit/fields" => Json("""{"value":[{"referenceName":"System.State"},{"referenceName":"System.CreatedBy"},{"referenceName":"System.CreatedDate"},{"referenceName":"System.WorkItemType"}]}"""),
+                "wit/workitemrelationtypes" => Json("""{"value":[{"referenceName":"Microsoft.VSTS.Common.TestedBy-Reverse"}]}"""),
+                "wit/workitemtypes" => Json("""{"value":[{"name":"Bug"}]}"""),
+                "wit/workitemtypes/Bug/states" => Json("""{"value":[{"name":"Active","category":"InProgress"}]}"""),
+                "wit/workitemtypecategories" => Json("""{"value":[{"referenceName":"Microsoft.RequirementCategory","workItemTypes":[{"name":"User Story"}]}]}"""),
+                "wit/workitems" => Json("{\"value\":[]}"),
+                _ => Json("{\"value\":[]}")
+            };
+        });
+        using var raw = JsonDocument.Parse("{\"id\":1,\"results\":{\"outcome\":\"failed\"}}");
+        var point = TestPointNormalizer.Normalize(raw.RootElement, 1, 1, "Suite") with { TestCaseId = 20 };
+        var start = DateTimeOffset.Parse("2026-10-18T17:00:00Z");
+        var snapshot = new PlanAnalytics(1, null, KpiCalculator.Calculate([point]), [], 0, start) { Points = [point] };
+        await service.LoadAsync(snapshot, [], new(start, start.AddDays(1)), null, default);
+        // Organization-scoped: no project segment before /_apis/.
+        Assert.Equal("/fixture/_apis/wit/workitemrelationtypes", urls["wit/workitemrelationtypes"]);
+        // Project-scoped calls retain the project segment.
+        Assert.Equal("/fixture/fixture/_apis/wit/fields", urls["wit/fields"]);
+    }
 }
