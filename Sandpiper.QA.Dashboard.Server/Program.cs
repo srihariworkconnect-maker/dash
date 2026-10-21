@@ -24,6 +24,7 @@ builder.Services.AddSingleton<TokenCredential>(_ => new VisualStudioCredential(n
     TenantId = builder.Configuration["AzureDevOps:TenantId"]
 }));
 builder.Services.AddSingleton<AdoRequestGate>();
+builder.Services.AddSingleton<AdoTokenCache>();
 builder.Services.AddHttpClient<AzureDevOpsClient>(client => client.Timeout = TimeSpan.FromSeconds(60))
     .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient<AzureDevOpsService>();
@@ -80,7 +81,13 @@ app.Use(async (context, next) =>
     }
     await next(context);
     }
-    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested) { }
+    catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
+    {
+        // Expected: the browser aborted the request (scope change, navigation, refresh or unmount).
+        // Handled gracefully; recorded at debug level only so it is never reported as a service failure.
+        app.Logger.LogDebug("Request cancelled by caller after {ElapsedMs}ms; trace {TraceId}",
+            watch.ElapsedMilliseconds, context.TraceIdentifier);
+    }
     catch (Exception error)
     {
         var status = error switch
@@ -90,10 +97,12 @@ app.Use(async (context, next) =>
             CredentialUnavailableException or AuthenticationFailedException => 503,
             HttpRequestException { StatusCode: HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden } => 403,
             HttpRequestException or InvalidDataException or System.Text.Json.JsonException => 502,
-            OperationCanceledException => 504,
+            TimeoutException or OperationCanceledException => 504,
             _ => 500
         };
-        app.Logger.LogWarning("Analytics request failed: {Type}; trace {TraceId}", error.GetType().Name, context.TraceIdentifier);
+        app.Logger.LogWarning(error, "Analytics request failed: {Type}; status {Status}; callerAborted {Aborted}; " +
+            "elapsed {ElapsedMs}ms; trace {TraceId}", error.GetType().Name, status,
+            context.RequestAborted.IsCancellationRequested, watch.ElapsedMilliseconds, context.TraceIdentifier);
         context.Response.StatusCode = status;
         await context.Response.WriteAsJsonAsync(new { error = status == 400
             ? "Invalid reporting scope or configuration. Check plan, suite and offset-aware dates."
