@@ -1,10 +1,11 @@
 using System.Text.Json;
+using Microsoft.Extensions.Logging;
 using Sandpiper.QA.Dashboard.Server.Models;
 using Sandpiper.QA.Dashboard.Server.Services.Analytics;
 
 namespace Sandpiper.QA.Dashboard.Server.Services;
 
-public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
+public sealed class WorkItemEvidenceService(AzureDevOpsClient ado, ILogger<WorkItemEvidenceService>? logger = null)
 {
     private static string? Field(JsonElement item, string key) => item.TryGetProperty("fields", out var fields) && fields.TryGetProperty(key, out var value)
         ? value.ValueKind == JsonValueKind.String ? value.GetString() : value.ValueKind == JsonValueKind.Number ? value.ToString() : null : null;
@@ -15,6 +16,7 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
     public async Task<QualityEvidence> LoadAsync(PlanAnalytics snapshot, IReadOnlyList<ExecutionEvent> events,
         ReportingWindow window, string? tester, CancellationToken ct)
     {
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             // Inspect this environment's metadata BEFORE interpreting work-item states/fields.
@@ -22,7 +24,8 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
             var names = fields.Select(f => AzureDevOpsClient.Text(f, "referenceName")).Where(n => n != null).Cast<string>().ToHashSet();
             if (!new[] { "System.State", "System.CreatedBy", "System.CreatedDate", "System.WorkItemType" }.All(names.Contains))
                 throw new InvalidDataException("Required work-item fields are absent from inspected schema.");
-            var relationTypes = await ado.ListAsync("wit/workitemrelationtypes", ct);
+            // Work-item relation types exist only at organization scope; the project-scoped path 404s.
+            var relationTypes = await ado.ListAsync("wit/workitemrelationtypes", ct, organizationScope: true);
             var requirementRelationAvailable = relationTypes.Any(r => AzureDevOpsClient.Text(r, "referenceName") == "Microsoft.VSTS.Common.TestedBy-Reverse");
             var types = await ado.ListAsync("wit/workitemtypes", ct);
             var bugType = types.FirstOrDefault(t => AzureDevOpsClient.Text(t, "name")?.Equals("Bug", StringComparison.OrdinalIgnoreCase) == true);
@@ -56,6 +59,8 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
                 return result;
             }
             var items = await Items(caseIds.Concat(bugIds));
+            logger?.LogInformation("Work-item evidence: schema inspected; {Cases} cases, {Bugs} result-linked bugs, {Items} work items fetched at {ElapsedMs}ms",
+                caseIds.Length, bugIds.Length, items.Count, elapsed.ElapsedMilliseconds);
             var supportedRelations = relationTypes.Select(r => AzureDevOpsClient.Text(r, "referenceName")).ToHashSet();
             bool ScopeRelation(string? name) => (name is "Microsoft.VSTS.Common.TestedBy-Reverse" or "System.LinkTypes.Related") && supportedRelations.Contains(name);
             relationshipsComplete &= caseIds.All(id => Relations(items[id]).All(r =>
@@ -89,6 +94,8 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
                     "Unknown", null, null, null, [], null) { LinkedCaseIds = caseBugs.Where(p => p.Value.Contains(id)).Select(p => p.Key).ToArray() };
                 defects.Add(DefectVerificationEvaluator.Evaluate(bug, DateTimeOffset.UtcNow));
             }
+            logger?.LogInformation("Work-item evidence: fetched revision history for {Bugs} bugs ({RevisionCalls} sequential revision calls) by {ElapsedMs}ms",
+                bugIds.Length, bugIds.Length, elapsed.ElapsedMilliseconds);
             var activity = BugActivityCalculator.Calculate(defects, window, tester);
             var unknownStates = defects.Any(b => b.Category == "Unknown");
             var risk = new List<string>();
@@ -112,6 +119,7 @@ public sealed class WorkItemEvidenceService(AzureDevOpsClient ado)
         }
         catch (Exception ex) when (ex is HttpRequestException or InvalidDataException)
         {
+            logger?.LogWarning("Work-item evidence unavailable after {ElapsedMs}ms: {Type}", elapsed.ElapsedMilliseconds, ex.GetType().Name);
             return new(false, "Work-item schema/relationships unavailable or inconsistent; check WIT read permissions and process metadata.",
                 DateTimeOffset.UtcNow, [], new Dictionary<string, string>(), [], [], [], null, null,
                 "Not Assessed", ["Defect evidence unavailable; no zero or readiness inference."], null, ["Awaiting corporate schema/relationship validation."])
